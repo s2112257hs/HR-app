@@ -1,0 +1,203 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  ROSTER_MANAGER
+  VIEWER
+}
+
+enum ShiftStatus {
+  SCHEDULED
+  CANCELLED
+}
+
+enum DayMarkerType {
+  RDO
+  LEAVE
+}
+
+model Organisation {
+  id          String       @id @default(uuid()) @db.Uuid
+  name        String       @db.VarChar(150)
+  timezone    String       @db.VarChar(100)
+  rdoTrackingStartDate DateTime @default(dbgenerated("CURRENT_DATE")) @map("rdo_tracking_start_date") @db.Date
+  users       User[]
+  employees   Employee[]
+  departments Department[]
+  shifts      Shift[]
+  dayMarkers  DayMarker[]
+  validationRules ValidationRule[]
+  auditLogs   AuditLog[]
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("organisations")
+}
+
+model User {
+  id             String       @id @default(uuid()) @db.Uuid
+  organisationId String       @map("organisation_id") @db.Uuid
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  name           String       @db.VarChar(150)
+  email          String       @db.VarChar(255)
+  passwordHash   String       @map("password_hash") @db.VarChar(255)
+  role           UserRole
+  isActive       Boolean      @default(true) @map("is_active")
+  lastLoginAt    DateTime?    @map("last_login_at") @db.Timestamptz(6)
+  createdShifts  Shift[]      @relation("CreatedShifts")
+  updatedShifts  Shift[]      @relation("UpdatedShifts")
+  createdDayMarkers DayMarker[] @relation("CreatedDayMarkers")
+  updatedDayMarkers DayMarker[] @relation("UpdatedDayMarkers")
+  auditLogs      AuditLog[]
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([organisationId, email])
+  @@map("users")
+}
+
+model Employee {
+  id             String       @id @default(uuid()) @db.Uuid
+  organisationId String       @map("organisation_id") @db.Uuid
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  employeeNumber String?      @map("employee_number") @db.VarChar(50)
+  firstName      String       @map("first_name") @db.VarChar(100)
+  lastName       String?      @map("last_name") @db.VarChar(100)
+  preferredName  String?      @map("preferred_name") @db.VarChar(100)
+  phone          String?      @db.VarChar(50)
+  email          String?      @db.VarChar(255)
+  employmentType String?      @map("employment_type") @db.VarChar(50)
+  startDate      DateTime?    @map("start_date") @db.Date
+  endDate        DateTime?    @map("end_date") @db.Date
+  primaryDepartmentId String?      @map("primary_department_id") @db.Uuid
+  primaryDepartment   Department?  @relation("EmployeePrimaryDepartment", fields: [primaryDepartmentId], references: [id], onDelete: SetNull)
+  displayOrder   Int          @map("display_order")
+  isActive       Boolean      @default(true) @map("is_active")
+  deletedAt      DateTime?    @map("deleted_at") @db.Timestamptz(6)
+  shifts         Shift[]
+  dayMarkers     DayMarker[]
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([organisationId, employeeNumber])
+  @@index([organisationId, isActive, displayOrder])
+  @@index([organisationId, primaryDepartmentId, displayOrder])
+  @@map("employees")
+}
+
+model Department {
+  id             String       @id @default(uuid()) @db.Uuid
+  organisationId String       @map("organisation_id") @db.Uuid
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  name           String       @db.VarChar(100)
+  shortCode      String       @map("short_code") @db.VarChar(10)
+  colourHex      String       @map("colour_hex") @db.Char(7)
+  displayOrder   Int          @map("display_order")
+  isActive       Boolean      @default(true) @map("is_active")
+  deletedAt      DateTime?    @map("deleted_at") @db.Timestamptz(6)
+  shifts         Shift[]
+  primaryEmployees Employee[] @relation("EmployeePrimaryDepartment")
+  validationRules ValidationRule[]
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([organisationId, name])
+  @@unique([organisationId, shortCode])
+  @@index([organisationId, isActive, displayOrder])
+  @@map("departments")
+}
+
+model Shift {
+  id                 String       @id @default(uuid()) @db.Uuid
+  organisationId     String       @map("organisation_id") @db.Uuid
+  organisation       Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  employeeId         String       @map("employee_id") @db.Uuid
+  employee           Employee     @relation(fields: [employeeId], references: [id])
+  departmentId       String       @map("department_id") @db.Uuid
+  department         Department   @relation(fields: [departmentId], references: [id])
+  startAt            DateTime     @map("start_at") @db.Timestamptz(6)
+  endAt              DateTime     @map("end_at") @db.Timestamptz(6)
+  unpaidBreakMinutes Int          @default(0) @map("unpaid_break_minutes")
+  notes              String?
+  status             ShiftStatus  @default(SCHEDULED)
+  createdByUserId    String       @map("created_by_user_id") @db.Uuid
+  createdBy          User         @relation("CreatedShifts", fields: [createdByUserId], references: [id])
+  updatedByUserId    String       @map("updated_by_user_id") @db.Uuid
+  updatedBy          User         @relation("UpdatedShifts", fields: [updatedByUserId], references: [id])
+  version            Int          @default(1)
+  deletedAt          DateTime?    @map("deleted_at") @db.Timestamptz(6)
+  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([organisationId, startAt])
+  @@index([employeeId, startAt, endAt])
+  @@index([departmentId, startAt, endAt])
+  @@map("shifts")
+}
+
+model DayMarker {
+  id              String        @id @default(uuid()) @db.Uuid
+  organisationId  String        @map("organisation_id") @db.Uuid
+  organisation    Organisation  @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  employeeId      String        @map("employee_id") @db.Uuid
+  employee        Employee      @relation(fields: [employeeId], references: [id])
+  date            DateTime      @db.Date
+  type            DayMarkerType
+  notes           String?
+  createdByUserId String        @map("created_by_user_id") @db.Uuid
+  createdBy       User          @relation("CreatedDayMarkers", fields: [createdByUserId], references: [id])
+  updatedByUserId String        @map("updated_by_user_id") @db.Uuid
+  updatedBy       User          @relation("UpdatedDayMarkers", fields: [updatedByUserId], references: [id])
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([organisationId, employeeId, date])
+  @@index([organisationId, date])
+  @@index([employeeId, date])
+  @@map("day_markers")
+}
+
+model ValidationRule {
+  id             String       @id @default(uuid()) @db.Uuid
+  organisationId String       @map("organisation_id") @db.Uuid
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  departmentId   String       @map("department_id") @db.Uuid
+  department     Department   @relation(fields: [departmentId], references: [id])
+  name           String       @db.VarChar(120)
+  startTime      String       @map("start_time") @db.VarChar(5)
+  endTime        String       @map("end_time") @db.VarChar(5)
+  minimumStaff   Int          @map("minimum_staff")
+  isActive       Boolean      @default(true) @map("is_active")
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([organisationId, name])
+  @@index([organisationId, isActive])
+  @@index([departmentId, isActive])
+  @@map("validation_rules")
+}
+
+model AuditLog {
+  id             String       @id @default(uuid()) @db.Uuid
+  organisationId String       @map("organisation_id") @db.Uuid
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  userId         String       @map("user_id") @db.Uuid
+  user           User         @relation(fields: [userId], references: [id])
+  action         String       @db.VarChar(50)
+  entityType     String       @map("entity_type") @db.VarChar(50)
+  entityId       String       @map("entity_id") @db.Uuid
+  beforeData     Json?        @map("before_data")
+  afterData      Json?        @map("after_data")
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([organisationId, entityType, entityId])
+  @@index([organisationId, createdAt])
+  @@map("audit_logs")
+}

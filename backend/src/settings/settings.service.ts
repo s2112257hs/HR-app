@@ -1,0 +1,410 @@
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
+import { DateTime } from "luxon";
+import { AuditService } from "../audit/audit.service";
+import { AuthenticatedUser } from "../common/types/authenticated-user";
+import { PrismaService } from "../prisma/prisma.service";
+import { CreateValidationRuleDto } from "./dto/create-validation-rule.dto";
+import { UpdateSettingsDto } from "./dto/update-settings.dto";
+import { UpdateValidationRuleDto } from "./dto/update-validation-rule.dto";
+
+type ValidationRuleData = {
+  name: string;
+  departmentId: string;
+  startTime: string;
+  endTime: string;
+  minimumStaff: number;
+  isActive: boolean;
+};
+
+type ValidationRuleForResponse = {
+  id: string;
+  organisationId: string;
+  departmentId: string;
+  name: string;
+  startTime: string;
+  endTime: string;
+  minimumStaff: number;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  department: {
+    id: string;
+    name: string;
+    shortCode: string;
+    colourHex: string;
+    isActive: boolean;
+  };
+};
+
+@Injectable()
+export class SettingsService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditService: AuditService
+  ) {}
+
+  async get(organisationId: string) {
+    const organisation = await this.prisma.organisation.findUniqueOrThrow({
+      where: { id: organisationId },
+      select: {
+        id: true,
+        name: true,
+        timezone: true,
+        rdoTrackingStartDate: true
+      }
+    });
+
+    return this.toResponse(organisation);
+  }
+
+  async update(currentUser: AuthenticatedUser, dto: UpdateSettingsDto) {
+    const before = await this.prisma.organisation.findUniqueOrThrow({
+      where: { id: currentUser.organisationId },
+      select: {
+        id: true,
+        name: true,
+        timezone: true,
+        rdoTrackingStartDate: true
+      }
+    });
+    const rdoTrackingStartDate = this.dateFromKey(dto.rdoTrackingStartDate, "rdoTrackingStartDate");
+    const updated = await this.prisma.organisation.update({
+      where: { id: currentUser.organisationId },
+      data: { rdoTrackingStartDate },
+      select: {
+        id: true,
+        name: true,
+        timezone: true,
+        rdoTrackingStartDate: true
+      }
+    });
+
+    await this.auditService.record({
+      organisationId: currentUser.organisationId,
+      userId: currentUser.sub,
+      action: "SETTINGS_UPDATED",
+      entityType: "Organisation",
+      entityId: currentUser.organisationId,
+      beforeData: before as Prisma.InputJsonValue,
+      afterData: updated as Prisma.InputJsonValue
+    });
+
+    return this.toResponse(updated);
+  }
+
+  async listValidationRules(organisationId: string) {
+    const rules = await this.prisma.validationRule.findMany({
+      where: { organisationId },
+      include: { department: true },
+      orderBy: [{ isActive: "desc" }, { name: "asc" }]
+    });
+
+    return rules.map((rule) => this.ruleToResponse(rule));
+  }
+
+  async createValidationRule(currentUser: AuthenticatedUser, dto: CreateValidationRuleDto) {
+    const data = this.normaliseRuleData({
+      name: dto.name,
+      departmentId: dto.departmentId,
+      startTime: dto.startTime,
+      endTime: dto.endTime,
+      minimumStaff: dto.minimumStaff,
+      isActive: true
+    });
+    this.validateRuleTimes(data);
+    await this.ensureActiveDepartment(currentUser.organisationId, data.departmentId);
+    await this.assertRulesCanCoexist(currentUser.organisationId, data);
+
+    try {
+      const created = await this.prisma.validationRule.create({
+        data: {
+          organisationId: currentUser.organisationId,
+          ...data
+        },
+        include: { department: true }
+      });
+
+      await this.auditService.record({
+        organisationId: currentUser.organisationId,
+        userId: currentUser.sub,
+        action: "VALIDATION_RULE_CREATED",
+        entityType: "ValidationRule",
+        entityId: created.id,
+        afterData: created as Prisma.InputJsonValue
+      });
+
+      return this.ruleToResponse(created);
+    } catch (error) {
+      this.throwFriendlyUniqueRuleError(error);
+      throw error;
+    }
+  }
+
+  async updateValidationRule(currentUser: AuthenticatedUser, id: string, dto: UpdateValidationRuleDto) {
+    const before = await this.findRuleOrThrow(currentUser.organisationId, id);
+    const data = this.normaliseRuleData({
+      name: dto.name ?? before.name,
+      departmentId: dto.departmentId ?? before.departmentId,
+      startTime: dto.startTime ?? before.startTime,
+      endTime: dto.endTime ?? before.endTime,
+      minimumStaff: dto.minimumStaff ?? before.minimumStaff,
+      isActive: before.isActive
+    });
+    this.validateRuleTimes(data);
+
+    if (dto.departmentId) {
+      await this.ensureActiveDepartment(currentUser.organisationId, dto.departmentId);
+    }
+    if (data.isActive) {
+      await this.assertRulesCanCoexist(currentUser.organisationId, data, id);
+    }
+
+    try {
+      const updated = await this.prisma.validationRule.update({
+        where: { id },
+        data,
+        include: { department: true }
+      });
+
+      await this.auditService.record({
+        organisationId: currentUser.organisationId,
+        userId: currentUser.sub,
+        action: "VALIDATION_RULE_UPDATED",
+        entityType: "ValidationRule",
+        entityId: id,
+        beforeData: before as Prisma.InputJsonValue,
+        afterData: updated as Prisma.InputJsonValue
+      });
+
+      return this.ruleToResponse(updated);
+    } catch (error) {
+      this.throwFriendlyUniqueRuleError(error);
+      throw error;
+    }
+  }
+
+  async setValidationRuleActive(currentUser: AuthenticatedUser, id: string, isActive: boolean) {
+    const before = await this.findRuleOrThrow(currentUser.organisationId, id);
+
+    if (isActive) {
+      await this.ensureActiveDepartment(currentUser.organisationId, before.departmentId);
+      await this.assertRulesCanCoexist(
+        currentUser.organisationId,
+        {
+          name: before.name,
+          departmentId: before.departmentId,
+          startTime: before.startTime,
+          endTime: before.endTime,
+          minimumStaff: before.minimumStaff,
+          isActive: true
+        },
+        id
+      );
+    }
+
+    const updated = await this.prisma.validationRule.update({
+      where: { id },
+      data: { isActive },
+      include: { department: true }
+    });
+
+    await this.auditService.record({
+      organisationId: currentUser.organisationId,
+      userId: currentUser.sub,
+      action: isActive ? "VALIDATION_RULE_REACTIVATED" : "VALIDATION_RULE_DEACTIVATED",
+      entityType: "ValidationRule",
+      entityId: id,
+      beforeData: before as Prisma.InputJsonValue,
+      afterData: updated as Prisma.InputJsonValue
+    });
+
+    return this.ruleToResponse(updated);
+  }
+
+  private toResponse(organisation: { id: string; name: string; timezone: string; rdoTrackingStartDate: Date }) {
+    return {
+      id: organisation.id,
+      name: organisation.name,
+      timezone: organisation.timezone,
+      rdoTrackingStartDate: DateTime.fromJSDate(organisation.rdoTrackingStartDate, { zone: "utc" }).toISODate()
+    };
+  }
+
+  private ruleToResponse(rule: ValidationRuleForResponse) {
+    return {
+      id: rule.id,
+      organisationId: rule.organisationId,
+      departmentId: rule.departmentId,
+      name: rule.name,
+      startTime: rule.startTime,
+      endTime: rule.endTime,
+      minimumStaff: rule.minimumStaff,
+      isActive: rule.isActive,
+      department: {
+        id: rule.department.id,
+        name: rule.department.name,
+        shortCode: rule.department.shortCode,
+        colourHex: rule.department.colourHex,
+        isActive: rule.department.isActive
+      },
+      createdAt: rule.createdAt,
+      updatedAt: rule.updatedAt
+    };
+  }
+
+  private normaliseRuleData(data: ValidationRuleData) {
+    return {
+      ...data,
+      name: data.name.trim(),
+      startTime: data.startTime.trim(),
+      endTime: data.endTime.trim(),
+      minimumStaff: Number(data.minimumStaff)
+    };
+  }
+
+  private validateRuleTimes(data: ValidationRuleData) {
+    if (!data.name) {
+      throw this.validationError("name", "Rule name is required.");
+    }
+    const startMinute = this.parseTimeToMinutes(data.startTime, "startTime");
+    const endMinute = this.ruleEndMinute(data.endTime, "endTime");
+
+    if (endMinute <= startMinute) {
+      throw this.validationError("endTime", "End time must be later than start time.");
+    }
+  }
+
+  private async assertRulesCanCoexist(organisationId: string, candidate: ValidationRuleData, excludeRuleId?: string) {
+    const activeEmployeeCount = await this.prisma.employee.count({
+      where: {
+        organisationId,
+        isActive: true,
+        deletedAt: null
+      }
+    });
+    const existingRules = await this.prisma.validationRule.findMany({
+      where: {
+        organisationId,
+        isActive: true,
+        ...(excludeRuleId ? { id: { not: excludeRuleId } } : {})
+      }
+    });
+    const activeRules = [...existingRules, candidate];
+    const points = Array.from(
+      new Set(
+        activeRules.flatMap((rule) => [this.parseTimeToMinutes(rule.startTime, "startTime"), this.ruleEndMinute(rule.endTime, "endTime")])
+      )
+    ).sort((left, right) => left - right);
+
+    for (let index = 0; index < points.length - 1; index += 1) {
+      const segmentStart = points[index];
+      const segmentEnd = points[index + 1];
+      const requiredByDepartment = new Map<string, number>();
+
+      for (const rule of activeRules) {
+        const ruleStart = this.parseTimeToMinutes(rule.startTime, "startTime");
+        const ruleEnd = this.ruleEndMinute(rule.endTime, "endTime");
+
+        if (ruleStart < segmentEnd && ruleEnd > segmentStart) {
+          requiredByDepartment.set(rule.departmentId, Math.max(requiredByDepartment.get(rule.departmentId) ?? 0, rule.minimumStaff));
+        }
+      }
+
+      const requiredStaff = Array.from(requiredByDepartment.values()).reduce((total, minimumStaff) => total + minimumStaff, 0);
+      if (requiredStaff > activeEmployeeCount) {
+        throw new BadRequestException({
+          error: "VALIDATION_RULES_INCOMPATIBLE",
+          message: "These validation rules cannot all be satisfied at the same time with the active employee count.",
+          fields: {
+            minimumStaff: `Rules require ${requiredStaff} staff at the same time, but only ${activeEmployeeCount} active employees exist.`
+          }
+        });
+      }
+    }
+  }
+
+  private async findRuleOrThrow(organisationId: string, id: string) {
+    const rule = await this.prisma.validationRule.findFirst({
+      where: { id, organisationId },
+      include: { department: true }
+    });
+
+    if (!rule) {
+      throw new NotFoundException("Validation rule not found.");
+    }
+
+    return rule;
+  }
+
+  private async ensureActiveDepartment(organisationId: string, departmentId: string) {
+    const department = await this.prisma.department.findFirst({
+      where: {
+        id: departmentId,
+        organisationId,
+        isActive: true,
+        deletedAt: null
+      },
+      select: { id: true }
+    });
+
+    if (!department) {
+      throw this.validationError("departmentId", "Department must be active and belong to the current organisation.");
+    }
+  }
+
+  private parseTimeToMinutes(time: string, field: string) {
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+      throw this.validationError(field, "Time must use HH:mm format.");
+    }
+
+    const [hours, minutes] = time.split(":").map(Number);
+    return hours * 60 + minutes;
+  }
+
+  private ruleEndMinute(time: string, field: string) {
+    if (time === "23:59") {
+      return 24 * 60;
+    }
+
+    return this.parseTimeToMinutes(time, field);
+  }
+
+  private throwFriendlyUniqueRuleError(error: unknown) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      throw new ConflictException({
+        error: "UNIQUE_CONSTRAINT",
+        message: "A validation rule with this name already exists.",
+        fields: {
+          name: "Rule name is already in use."
+        }
+      });
+    }
+  }
+
+  private dateFromKey(date: string, field: string) {
+    const parsed = DateTime.fromISO(date, { zone: "utc" }).startOf("day");
+
+    if (!parsed.isValid) {
+      throw new BadRequestException({
+        error: "VALIDATION_ERROR",
+        message: "The request contains invalid information.",
+        fields: {
+          [field]: "Date must be a valid ISO date."
+        }
+      });
+    }
+
+    return parsed.toJSDate();
+  }
+
+  private validationError(field: string, message: string) {
+    return new BadRequestException({
+      error: "VALIDATION_ERROR",
+      message: "The request contains invalid information.",
+      fields: {
+        [field]: message
+      }
+    });
+  }
+}
