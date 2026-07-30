@@ -2,18 +2,22 @@ import { PrismaClient, UserRole } from "@prisma/client";
 import * as bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
+const organisationName = process.env.SEED_ORGANISATION_NAME ?? "Demo Resort";
+const organisationTimezone = process.env.SEED_TIMEZONE ?? "Indian/Maldives";
+const adminEmail = process.env.SEED_ADMIN_EMAIL ?? "admin@example.com";
+const adminPassword = process.env.SEED_ADMIN_PASSWORD ?? "admin123";
 
 async function main() {
   const organisation = await prisma.organisation.upsert({
     where: { id: "00000000-0000-4000-8000-000000000001" },
     create: {
       id: "00000000-0000-4000-8000-000000000001",
-      name: "Demo Resort",
-      timezone: "Indian/Maldives"
+      name: organisationName,
+      timezone: organisationTimezone
     },
     update: {
-      name: "Demo Resort",
-      timezone: "Indian/Maldives"
+      name: organisationName,
+      timezone: organisationTimezone
     }
   });
 
@@ -21,14 +25,14 @@ async function main() {
     where: {
       organisationId_email: {
         organisationId: organisation.id,
-        email: "admin@example.com"
+        email: adminEmail
       }
     },
     create: {
       organisationId: organisation.id,
       name: "Admin User",
-      email: "admin@example.com",
-      passwordHash: await bcrypt.hash("admin123", 12),
+      email: adminEmail,
+      passwordHash: await bcrypt.hash(adminPassword, 12),
       role: UserRole.ADMIN
     },
     update: {
@@ -138,4 +142,3 @@ main()
     await prisma.$disconnect();
     process.exit(1);
   });
-

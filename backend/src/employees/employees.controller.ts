@@ -33,7 +33,7 @@ export class EmployeesController {
   }
 
   @Post()
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ROSTER_MANAGER)
   create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateEmployeeDto) {
     return this.employeesService.create(user, dto);
   }

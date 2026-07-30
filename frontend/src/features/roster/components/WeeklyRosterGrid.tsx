@@ -83,8 +83,6 @@ export function WeeklyRosterGrid({
         <div className="weekly-row" key={employee.id}>
           <div className="employee-cell" style={{ "--primary-department-colour": employee.primaryDepartment?.colourHex ?? "transparent" } as CSSProperties}>
             <strong>{employee.displayName}</strong>
-            {employee.employeeNumber && <span>{employee.employeeNumber}</span>}
-            {employee.primaryDepartment && <span>{employee.primaryDepartment.shortCode}</span>}
           </div>
           {dates.map((date) => {
             const marker = employee.dayMarkers.find((marker) => marker.date === date);

@@ -9,6 +9,7 @@ import { fetchDepartments } from "../../api/departments";
 import { createEmployee, deactivateEmployee, EmployeePayload, fetchEmployees, restoreEmployee, updateEmployee } from "../../api/employees";
 import { Employee } from "../../types/api";
 import { friendlyApiFieldErrors, friendlyApiMessage } from "../../utilities/formErrors";
+import { useAuth } from "../authentication/AuthProvider";
 
 const employeeSchema = z.object({
   employeeNumber: z.string().max(50, "Employee number must be 50 characters or fewer.").optional(),
@@ -40,6 +41,7 @@ const blankForm: EmployeeForm = {
 
 export function EmployeesPage() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [status, setStatus] = useState("all");
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<Employee | null>(null);
@@ -57,9 +59,10 @@ export function EmployeesPage() {
     resolver: zodResolver(employeeSchema),
     defaultValues: blankForm
   });
+  const canEditExisting = user?.role === "ADMIN";
 
   useEffect(() => {
-    if (!editing) {
+    if (!editing || !canEditExisting) {
       form.reset(blankForm);
       return;
     }
@@ -75,12 +78,12 @@ export function EmployeesPage() {
       endDate: editing.endDate?.slice(0, 10) ?? "",
       primaryDepartmentId: editing.primaryDepartmentId ?? editing.primaryDepartment?.id ?? ""
     });
-  }, [editing, form]);
+  }, [canEditExisting, editing, form]);
 
   const saveMutation = useMutation({
     mutationFn: (values: EmployeeForm) => {
       const payload = cleanEmployeePayload(values);
-      return editing ? updateEmployee(editing.id, payload) : createEmployee(payload);
+      return editing && canEditExisting ? updateEmployee(editing.id, payload) : createEmployee(payload);
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["employees"] });
@@ -138,8 +141,8 @@ export function EmployeesPage() {
       </header>
       <form className="panel form-panel" onSubmit={form.handleSubmit((values) => saveMutation.mutate(values))}>
         <div className="form-panel-heading">
-          <h2>{editing ? "Edit employee" : "Create employee"}</h2>
-          {editing && (
+          <h2>{editing && canEditExisting ? "Edit employee" : "Create employee"}</h2>
+          {editing && canEditExisting && (
             <button className="secondary-button" type="button" onClick={() => setEditing(null)}>
               Clear
             </button>
@@ -207,7 +210,7 @@ export function EmployeesPage() {
         {form.formState.errors.root && <div className="form-error">{form.formState.errors.root.message}</div>}
         <div className="dialog-actions">
           <button className="primary-button" type="submit" disabled={saveMutation.isPending}>
-            {editing ? "Save employee" : "Create employee"}
+            {editing && canEditExisting ? "Save employee" : "Create employee"}
           </button>
         </div>
       </form>
@@ -223,7 +226,7 @@ export function EmployeesPage() {
               <th>Type</th>
               <th>Primary department</th>
               <th>Status</th>
-              <th>Actions</th>
+              {canEditExisting && <th>Actions</th>}
             </tr>
           </thead>
           <tbody>
@@ -244,28 +247,30 @@ export function EmployeesPage() {
                   )}
                 </td>
                 <td>{employee.isActive ? "Active" : "Inactive"}</td>
-                <td>
-                  <div className="row-actions">
-                    <button className="icon-button" type="button" onClick={() => setEditing(employee)} aria-label="Edit employee" title="Edit">
-                      <Edit3 size={16} aria-hidden="true" />
-                    </button>
-                    {employee.isActive ? (
-                      <button
-                        className="icon-button danger"
-                        type="button"
-                        onClick={() => setConfirmingDelete(employee)}
-                        aria-label="Deactivate employee"
-                        title="Deactivate"
-                      >
-                        <UserMinus size={16} aria-hidden="true" />
+                {canEditExisting && (
+                  <td>
+                    <div className="row-actions">
+                      <button className="icon-button" type="button" onClick={() => setEditing(employee)} aria-label="Edit employee" title="Edit">
+                        <Edit3 size={16} aria-hidden="true" />
                       </button>
-                    ) : (
-                      <button className="icon-button" type="button" onClick={() => restoreMutation.mutate(employee.id)} aria-label="Reactivate employee" title="Reactivate">
-                        <RotateCcw size={16} aria-hidden="true" />
-                      </button>
-                    )}
-                  </div>
-                </td>
+                      {employee.isActive ? (
+                        <button
+                          className="icon-button danger"
+                          type="button"
+                          onClick={() => setConfirmingDelete(employee)}
+                          aria-label="Deactivate employee"
+                          title="Deactivate"
+                        >
+                          <UserMinus size={16} aria-hidden="true" />
+                        </button>
+                      ) : (
+                        <button className="icon-button" type="button" onClick={() => restoreMutation.mutate(employee.id)} aria-label="Reactivate employee" title="Reactivate">
+                          <RotateCcw size={16} aria-hidden="true" />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

@@ -66,15 +66,6 @@ export function downloadWeeklyRosterPdf(roster: RosterResponse, options: PdfOpti
       maxWidth: EMPLOYEE_COLUMN_WIDTH - CELL_PADDING * 2 - (primaryDepartmentRgb ? 4 : 0)
     });
 
-    if (employee.employeeNumber) {
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(7);
-      doc.setTextColor(...colours.muted);
-      doc.text(employee.employeeNumber, PAGE_MARGIN + CELL_PADDING + (primaryDepartmentRgb ? 4 : 0), y + 27, {
-        maxWidth: EMPLOYEE_COLUMN_WIDTH - CELL_PADDING * 2 - (primaryDepartmentRgb ? 4 : 0)
-      });
-    }
-
     roster.dates.forEach((date, index) => {
       const x = PAGE_MARGIN + EMPLOYEE_COLUMN_WIDTH + index * dateColumnWidth;
       doc.setDrawColor(...colours.border);

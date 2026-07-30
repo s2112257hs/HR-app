@@ -117,8 +117,6 @@ export function DailyRosterGrid({ date, windowStartTime, windowStartAt, timezone
             <div className="daily-row" key={employee.id} style={{ minHeight: `${hasDayMarkers ? Math.max(72, laneCount * 32 + 18) : Math.max(56, laneCount * 32 + 18)}px` }}>
               <div className="employee-cell" style={{ "--primary-department-colour": employee.primaryDepartment?.colourHex ?? "transparent" } as CSSProperties}>
                 <strong>{employee.displayName}</strong>
-                {employee.employeeNumber && <span>{employee.employeeNumber}</span>}
-                {employee.primaryDepartment && <span>{employee.primaryDepartment.shortCode}</span>}
               </div>
               <div
                 className={`timeline-cell ${timelineEditable ? "" : "locked"} ${hasDayMarkers ? "has-day-marker" : ""}`}

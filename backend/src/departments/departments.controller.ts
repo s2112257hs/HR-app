@@ -32,7 +32,7 @@ export class DepartmentsController {
   }
 
   @Post()
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ROSTER_MANAGER)
   create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateDepartmentDto) {
     return this.departmentsService.create(user, dto);
   }

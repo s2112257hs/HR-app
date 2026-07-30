@@ -26,3 +26,10 @@ npm run build
 
 Copy each `.env.example` to `.env` and set local values before running development servers.
 
+## Free Hosting
+
+Use [DEPLOYMENT.md](DEPLOYMENT.md) to deploy the app with:
+
+- Oracle Cloud Always Free for a no-sleep backend
+- Vercel for the static frontend, if you do not serve it from the VM
+- Neon free PostgreSQL, or PostgreSQL on the VM

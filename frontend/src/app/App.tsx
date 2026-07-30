@@ -21,9 +21,11 @@ export function App() {
           <Route path="/roster/daily" element={<DailyRosterPage />} />
           <Route path="/roster/weekly" element={<WeeklyRosterPage />} />
           <Route path="/roster/rdo-tracker" element={<RdoTrackerPage />} />
-          <Route element={<RequireAdmin />}>
+          <Route element={<RequireManagerOrAdmin />}>
             <Route path="/back-office/employees" element={<EmployeesPage />} />
             <Route path="/back-office/departments" element={<DepartmentsPage />} />
+          </Route>
+          <Route element={<RequireAdmin />}>
             <Route path="/back-office/users" element={<UsersPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
@@ -38,6 +40,16 @@ function RequireAdmin() {
   const { user } = useAuth();
 
   if (user?.role !== "ADMIN") {
+    return <Navigate to="/roster/weekly" replace />;
+  }
+
+  return <Outlet />;
+}
+
+function RequireManagerOrAdmin() {
+  const { user } = useAuth();
+
+  if (user?.role !== "ADMIN" && user?.role !== "ROSTER_MANAGER") {
     return <Navigate to="/roster/weekly" replace />;
   }
 

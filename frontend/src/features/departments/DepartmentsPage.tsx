@@ -8,6 +8,7 @@ import { ApiError } from "../../api/client";
 import { createDepartment, deactivateDepartment, DepartmentPayload, fetchDepartments, restoreDepartment, updateDepartment } from "../../api/departments";
 import { Department } from "../../types/api";
 import { friendlyApiFieldErrors, friendlyApiMessage } from "../../utilities/formErrors";
+import { useAuth } from "../authentication/AuthProvider";
 
 const departmentSchema = z.object({
   name: z.string().trim().min(1, "Department name is required.").max(100, "Department name must be 100 characters or fewer."),
@@ -38,6 +39,7 @@ const COLOUR_PALETTE = [
 
 export function DepartmentsPage() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [status, setStatus] = useState("all");
   const [editing, setEditing] = useState<Department | null>(null);
   const [showColourPalette, setShowColourPalette] = useState(false);
@@ -53,10 +55,11 @@ export function DepartmentsPage() {
   });
   const colour = form.watch("colourHex");
   const normalizedColour = colour?.toUpperCase() ?? "#2563EB";
+  const canEditExisting = user?.role === "ADMIN";
 
   useEffect(() => {
     form.reset(
-      editing
+      editing && canEditExisting
         ? {
             name: editing.name,
             shortCode: editing.shortCode,
@@ -65,7 +68,7 @@ export function DepartmentsPage() {
         : blankForm
     );
     setShowColourPalette(false);
-  }, [editing, form]);
+  }, [canEditExisting, editing, form]);
 
   const saveMutation = useMutation({
     mutationFn: (values: DepartmentForm) => {
@@ -74,7 +77,7 @@ export function DepartmentsPage() {
         shortCode: values.shortCode.trim().toUpperCase(),
         colourHex: values.colourHex.trim().toUpperCase()
       };
-      return editing ? updateDepartment(editing.id, payload) : createDepartment(payload);
+      return editing && canEditExisting ? updateDepartment(editing.id, payload) : createDepartment(payload);
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["departments"] });
@@ -127,8 +130,8 @@ export function DepartmentsPage() {
       </header>
       <form className="panel form-panel" onSubmit={form.handleSubmit((values) => saveMutation.mutate(values))}>
         <div className="form-panel-heading">
-          <h2>{editing ? "Edit department" : "Create department"}</h2>
-          {editing && (
+          <h2>{editing && canEditExisting ? "Edit department" : "Create department"}</h2>
+          {editing && canEditExisting && (
             <button className="secondary-button" type="button" onClick={() => setEditing(null)}>
               Clear
             </button>
@@ -218,7 +221,7 @@ export function DepartmentsPage() {
         {form.formState.errors.root && <div className="form-error">{form.formState.errors.root.message}</div>}
         <div className="dialog-actions">
           <button className="primary-button" type="submit" disabled={saveMutation.isPending}>
-            {editing ? "Save department" : "Create department"}
+            {editing && canEditExisting ? "Save department" : "Create department"}
           </button>
         </div>
       </form>
@@ -231,7 +234,7 @@ export function DepartmentsPage() {
               <th>Name</th>
               <th>Short code</th>
               <th>Status</th>
-              <th>Actions</th>
+              {canEditExisting && <th>Actions</th>}
             </tr>
           </thead>
           <tbody>
@@ -243,28 +246,30 @@ export function DepartmentsPage() {
                 <td>{department.name}</td>
                 <td>{department.shortCode}</td>
                 <td>{department.isActive ? "Active" : "Inactive"}</td>
-                <td>
-                  <div className="row-actions">
-                    <button className="icon-button" type="button" onClick={() => setEditing(department)} aria-label="Edit department" title="Edit">
-                      <Edit3 size={16} aria-hidden="true" />
-                    </button>
-                    {department.isActive ? (
-                      <button
-                        className="icon-button danger"
-                        type="button"
-                        onClick={() => setConfirmingDelete(department)}
-                        aria-label="Deactivate department"
-                        title="Deactivate"
-                      >
-                        <Trash2 size={16} aria-hidden="true" />
+                {canEditExisting && (
+                  <td>
+                    <div className="row-actions">
+                      <button className="icon-button" type="button" onClick={() => setEditing(department)} aria-label="Edit department" title="Edit">
+                        <Edit3 size={16} aria-hidden="true" />
                       </button>
-                    ) : (
-                      <button className="icon-button" type="button" onClick={() => restoreMutation.mutate(department.id)} aria-label="Reactivate department" title="Reactivate">
-                        <RotateCcw size={16} aria-hidden="true" />
-                      </button>
-                    )}
-                  </div>
-                </td>
+                      {department.isActive ? (
+                        <button
+                          className="icon-button danger"
+                          type="button"
+                          onClick={() => setConfirmingDelete(department)}
+                          aria-label="Deactivate department"
+                          title="Deactivate"
+                        >
+                          <Trash2 size={16} aria-hidden="true" />
+                        </button>
+                      ) : (
+                        <button className="icon-button" type="button" onClick={() => restoreMutation.mutate(department.id)} aria-label="Reactivate department" title="Reactivate">
+                          <RotateCcw size={16} aria-hidden="true" />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

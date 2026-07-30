@@ -7,8 +7,8 @@ const navItems = [
   { to: "/roster/daily", label: "Daily", icon: CalendarDays },
   { to: "/roster/weekly", label: "Weekly", icon: CalendarRange },
   { to: "/roster/rdo-tracker", label: "RDO Tracker", icon: CalendarCheck },
-  { to: "/back-office/employees", label: "Employees", icon: Users, adminOnly: true },
-  { to: "/back-office/departments", label: "Departments", icon: Building2, adminOnly: true },
+  { to: "/back-office/employees", label: "Employees", icon: Users, managerAllowed: true },
+  { to: "/back-office/departments", label: "Departments", icon: Building2, managerAllowed: true },
   { to: "/back-office/users", label: "Users", icon: UserCog, adminOnly: true },
   { to: "/settings", label: "Settings", icon: Settings, adminOnly: true }
 ];
@@ -25,7 +25,17 @@ export function AppLayout() {
     }
     return window.matchMedia("(prefers-color-scheme: dark)").matches;
   });
-  const visibleNavItems = navItems.filter((item) => !item.adminOnly || user?.role === "ADMIN");
+  const visibleNavItems = navItems.filter((item) => {
+    if (item.adminOnly) {
+      return user?.role === "ADMIN";
+    }
+
+    if (item.managerAllowed) {
+      return user?.role === "ADMIN" || user?.role === "ROSTER_MANAGER";
+    }
+
+    return true;
+  });
 
   useEffect(() => {
     document.documentElement.dataset.theme = darkMode ? "dark" : "light";
