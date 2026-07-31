@@ -70,7 +70,7 @@ export function LoginPage() {
         </label>
         {errors.root && <div className="form-error">{errors.root.message}</div>}
         <button className="primary-button" type="submit" disabled={isSubmitting}>
-          Sign in
+          {isSubmitting ? "Signing in..." : "Sign in"}
         </button>
       </form>
     </main>

@@ -353,7 +353,7 @@ export function SettingsPage() {
                   <p className="dialog-note">RDO owed is counted from this date, or from an employee's start date.</p>
                   <div className="settings-save-row">
                     <button className="primary-button roster-management-save" type="submit" disabled={saveSettingsMutation.isPending}>
-                      Save settings
+                      {saveSettingsMutation.isPending ? "Saving settings..." : "Save settings"}
                     </button>
                   </div>
                 </>
@@ -434,7 +434,7 @@ export function SettingsPage() {
                   Close
                 </button>
                 <button className="primary-button" type="button" onClick={() => saveRdoBalancesMutation.mutate()} disabled={saveRdoBalancesMutation.isPending}>
-                  Save RDO balances
+                  {saveRdoBalancesMutation.isPending ? "Saving RDO balances..." : "Save RDO balances"}
                 </button>
               </div>
             </div>
@@ -483,7 +483,7 @@ export function SettingsPage() {
                   Close
                 </button>
                 <button className="primary-button" type="button" onClick={() => saveOrderMutation.mutate()} disabled={saveOrderMutation.isPending}>
-                  Save roster order
+                  {saveOrderMutation.isPending ? "Saving roster order..." : "Save roster order"}
                 </button>
               </div>
             </div>
@@ -544,7 +544,7 @@ export function SettingsPage() {
                   Close
                 </button>
                 <button className="primary-button" type="button" onClick={() => saveOrderMutation.mutate()} disabled={saveOrderMutation.isPending}>
-                  Save roster order
+                  {saveOrderMutation.isPending ? "Saving roster order..." : "Save roster order"}
                 </button>
               </div>
             </div>
@@ -598,7 +598,7 @@ export function SettingsPage() {
                 />
               </label>
               <button className="primary-button" type="submit" disabled={saveRuleMutation.isPending}>
-                {editingRule ? "Save rule" : "Create rule"}
+                {saveRuleMutation.isPending ? (editingRule ? "Saving rule..." : "Creating rule...") : editingRule ? "Save rule" : "Create rule"}
               </button>
             </div>
             {ruleMessage && <div className="form-success">{ruleMessage}</div>}
@@ -665,7 +665,7 @@ export function SettingsPage() {
                             <button
                               className="icon-button danger"
                               type="button"
-                              title="Deactivate"
+                              title={toggleRuleMutation.isPending ? "Deactivating..." : "Deactivate"}
                               aria-label="Deactivate"
                               onClick={() => toggleRuleMutation.mutate({ id: rule.id, active: false })}
                               disabled={toggleRuleMutation.isPending}
@@ -676,7 +676,7 @@ export function SettingsPage() {
                             <button
                               className="icon-button"
                               type="button"
-                              title="Reactivate"
+                              title={toggleRuleMutation.isPending ? "Reactivating..." : "Reactivate"}
                               aria-label="Reactivate"
                               onClick={() => toggleRuleMutation.mutate({ id: rule.id, active: true })}
                               disabled={toggleRuleMutation.isPending}

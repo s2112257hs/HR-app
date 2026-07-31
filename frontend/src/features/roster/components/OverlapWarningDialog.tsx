@@ -34,7 +34,7 @@ export function OverlapWarningDialog({ overlaps, onCancel, onConfirm, confirmLab
             Cancel
           </button>
           <button className="primary-button" type="button" onClick={onConfirm} disabled={pending}>
-            {confirmLabel}
+            {pending ? "Processing..." : confirmLabel}
           </button>
         </div>
       </div>

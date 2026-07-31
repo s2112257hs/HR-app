@@ -256,7 +256,7 @@ export function ShiftModal({ state, employees, departments, onClose, onBeforeMut
             {state.mode === "edit" && (
               <button className="danger-button" type="button" onClick={cancelShift} disabled={!canEdit || deleteMutation.isPending}>
                 <Trash2 size={16} aria-hidden="true" />
-                Cancel shift
+                {deleteMutation.isPending ? "Cancelling..." : "Cancel shift"}
               </button>
             )}
             <div className="right-actions">
@@ -264,7 +264,7 @@ export function ShiftModal({ state, employees, departments, onClose, onBeforeMut
                 Close
               </button>
               <button className="primary-button" type="submit" disabled={!canEdit || isSubmitting || saveMutation.isPending}>
-                Save
+                {saveMutation.isPending || isSubmitting ? "Saving..." : "Save"}
               </button>
             </div>
           </div>

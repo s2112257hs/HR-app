@@ -171,7 +171,7 @@ export function UsersPage() {
         {form.formState.errors.root && <div className="form-error">{form.formState.errors.root.message}</div>}
         <div className="dialog-actions">
           <button className="primary-button" type="submit" disabled={saveMutation.isPending}>
-            {editing ? "Save user" : "Create user"}
+            {saveMutation.isPending ? (editing ? "Saving user..." : "Creating user...") : editing ? "Save user" : "Create user"}
           </button>
         </div>
       </form>
@@ -201,11 +201,25 @@ export function UsersPage() {
                       <Edit3 size={16} aria-hidden="true" />
                     </button>
                     {user.isActive ? (
-                      <button className="icon-button danger" type="button" onClick={() => deactivateMutation.mutate(user.id)} aria-label="Deactivate user" title="Deactivate">
+                      <button
+                        className="icon-button danger"
+                        type="button"
+                        onClick={() => deactivateMutation.mutate(user.id)}
+                        aria-label="Deactivate user"
+                        title={deactivateMutation.isPending ? "Deactivating..." : "Deactivate"}
+                        disabled={deactivateMutation.isPending}
+                      >
                         <UserMinus size={16} aria-hidden="true" />
                       </button>
                     ) : (
-                      <button className="icon-button" type="button" onClick={() => restoreMutation.mutate(user.id)} aria-label="Reactivate user" title="Reactivate">
+                      <button
+                        className="icon-button"
+                        type="button"
+                        onClick={() => restoreMutation.mutate(user.id)}
+                        aria-label="Reactivate user"
+                        title={restoreMutation.isPending ? "Reactivating..." : "Reactivate"}
+                        disabled={restoreMutation.isPending}
+                      >
                         <RotateCcw size={16} aria-hidden="true" />
                       </button>
                     )}

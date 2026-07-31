@@ -221,7 +221,7 @@ export function DepartmentsPage() {
         {form.formState.errors.root && <div className="form-error">{form.formState.errors.root.message}</div>}
         <div className="dialog-actions">
           <button className="primary-button" type="submit" disabled={saveMutation.isPending}>
-            {editing && canEditExisting ? "Save department" : "Create department"}
+            {saveMutation.isPending ? (editing && canEditExisting ? "Saving department..." : "Creating department...") : editing && canEditExisting ? "Save department" : "Create department"}
           </button>
         </div>
       </form>
@@ -263,7 +263,14 @@ export function DepartmentsPage() {
                           <Trash2 size={16} aria-hidden="true" />
                         </button>
                       ) : (
-                        <button className="icon-button" type="button" onClick={() => restoreMutation.mutate(department.id)} aria-label="Reactivate department" title="Reactivate">
+                        <button
+                          className="icon-button"
+                          type="button"
+                          onClick={() => restoreMutation.mutate(department.id)}
+                          aria-label="Reactivate department"
+                          title={restoreMutation.isPending ? "Reactivating..." : "Reactivate"}
+                          disabled={restoreMutation.isPending}
+                        >
                           <RotateCcw size={16} aria-hidden="true" />
                         </button>
                       )}
@@ -290,7 +297,7 @@ export function DepartmentsPage() {
                 Cancel
               </button>
               <button className="danger-button" type="button" onClick={() => deactivateMutation.mutate(confirmingDelete.id)} disabled={deactivateMutation.isPending}>
-                Deactivate
+                {deactivateMutation.isPending ? "Deactivating..." : "Deactivate"}
               </button>
             </div>
           </div>

@@ -288,7 +288,7 @@ export function DailyRosterPage() {
             }}
             disabled={lockBusy || stealLockMutation.isPending}
           >
-            Acquire lock
+            {lockBusy || stealLockMutation.isPending ? "Acquiring..." : "Acquire lock"}
           </button>
         </div>
       )}
@@ -313,7 +313,7 @@ export function DailyRosterPage() {
           onCreateShift={(employeeId, shiftDate, startTime, endTime) => setModal({ mode: "create", employeeId, date: shiftDate, startTime, endTime })}
           onEditShift={(employeeId, shift) => setModal({ mode: "edit", employeeId, shift })}
           onMoveShift={(employeeId, shift, startAt, endAt) => void handleMoveShift(employeeId, shift, startAt, endAt)}
-          canEdit={canEditDailyRoster}
+          canEdit={canEditDailyRoster && !moveMutation.isPending}
         />
       )}
       {pendingMove && (

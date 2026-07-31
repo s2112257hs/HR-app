@@ -65,6 +65,7 @@ export function WeeklyRosterPage() {
   const [pendingCellReplace, setPendingCellReplace] = useState<PendingCellReplace | null>(null);
   const [pdfValidationDialog, setPdfValidationDialog] = useState<PdfValidationDialog | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const [pdfPending, setPdfPending] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
   const [pendingSelectedDelete, setPendingSelectedDelete] = useState<WeeklyCellKey[] | null>(null);
@@ -297,6 +298,7 @@ export function WeeklyRosterPage() {
     }
 
     setPdfError(null);
+    setPdfPending(true);
     try {
       const validation = await validateWeeklyRoster(startDate);
       if (validation.valid) {
@@ -307,6 +309,8 @@ export function WeeklyRosterPage() {
       setPdfValidationDialog({ validation, canProceed: user?.role === "ADMIN" });
     } catch (error) {
       setPdfError(friendlyApiMessage(error, "Roster validation could not be checked."));
+    } finally {
+      setPdfPending(false);
     }
   };
 
@@ -464,6 +468,12 @@ export function WeeklyRosterPage() {
     return window.confirm(`You are changing previous roster date${pastDates.length === 1 ? "" : "s"}: ${pastDates.join(", ")}. Continue?`);
   };
   const pendingDeleteDates = pendingSelectedDelete ? Array.from(new Set(pendingSelectedDelete.map((cell) => cell.date))).sort() : [];
+  const rosterActionPending =
+    setDayMarkerMutation.isPending ||
+    clearWeeklyCellsMutation.isPending ||
+    restoreWeeklyCellsMutation.isPending ||
+    removeDayMarkerMutation.isPending ||
+    copyWeeklyCellMutation.isPending;
 
   return (
     <section className="page-stack">
@@ -492,13 +502,13 @@ export function WeeklyRosterPage() {
             <ChevronsRight size={18} aria-hidden="true" />
           </button>
           <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
-          <button className="secondary-button" type="button" onClick={() => void downloadPdf()} disabled={!rosterQuery.data}>
+          <button className="secondary-button" type="button" onClick={() => void downloadPdf()} disabled={!rosterQuery.data || pdfPending}>
             <Download size={16} aria-hidden="true" />
-            PDF
+            {pdfPending ? "Checking..." : "PDF"}
           </button>
           <button className="secondary-button" type="button" onClick={undoLatestChange} disabled={!undoSnapshot || restoreWeeklyCellsMutation.isPending || !canEditWeeklyRoster}>
             <Undo2 size={16} aria-hidden="true" />
-            Undo
+            {restoreWeeklyCellsMutation.isPending ? "Undoing..." : "Undo"}
           </button>
           <button
             className="secondary-button"
@@ -507,16 +517,16 @@ export function WeeklyRosterPage() {
               setSelectMode((value) => !value);
               setSelectedCells(new Set());
             }}
-            disabled={!canEditWeeklyRoster}
+            disabled={!canEditWeeklyRoster || rosterActionPending}
           >
             {selectMode ? "Cancel select" : "Select cells"}
           </button>
-          <button className="secondary-button" type="button" onClick={selectAllCells} disabled={!canEditWeeklyRoster || !rosterQuery.data}>
+          <button className="secondary-button" type="button" onClick={selectAllCells} disabled={!canEditWeeklyRoster || !rosterQuery.data || rosterActionPending}>
             Select all
           </button>
-          <button className="danger-button" type="button" onClick={deleteSelectedCells} disabled={!canEditWeeklyRoster || selectedCells.size === 0 || clearWeeklyCellsMutation.isPending}>
+          <button className="danger-button" type="button" onClick={deleteSelectedCells} disabled={!canEditWeeklyRoster || selectedCells.size === 0 || rosterActionPending}>
             <Trash2 size={16} aria-hidden="true" />
-            Delete selected
+            {clearWeeklyCellsMutation.isPending ? "Deleting..." : "Delete selected"}
           </button>
         </div>
       </header>
@@ -539,7 +549,7 @@ export function WeeklyRosterPage() {
             }}
             disabled={lockBusy || stealLockMutation.isPending}
           >
-            Acquire lock
+            {lockBusy || stealLockMutation.isPending ? "Acquiring..." : "Acquire lock"}
           </button>
         </div>
       )}
@@ -563,7 +573,7 @@ export function WeeklyRosterPage() {
           onEditDayMarker={(employee, date, marker) => setDayMarkerModal({ employee, date, marker })}
           onCopyCell={copyWeeklyCellWithUndo}
           onOpenDate={(date) => navigate(`/roster/daily?date=${encodeURIComponent(date)}`)}
-          canEditDate={(date) => canEditWeeklyRoster && canEditRosterDate(user, date)}
+          canEditDate={(date) => canEditWeeklyRoster && !rosterActionPending && canEditRosterDate(user, date)}
           selectMode={selectMode}
           selectedCells={selectedCells}
           onToggleCellSelection={toggleCellSelection}
@@ -593,7 +603,7 @@ export function WeeklyRosterPage() {
               </button>
               <button className="danger-button" type="button" onClick={confirmDeleteSelectedCells} disabled={clearWeeklyCellsMutation.isPending}>
                 <Trash2 size={16} aria-hidden="true" />
-                Delete selected
+                {clearWeeklyCellsMutation.isPending ? "Deleting..." : "Delete selected"}
               </button>
             </div>
           </div>
@@ -624,7 +634,7 @@ export function WeeklyRosterPage() {
                 onClick={() => copyWeeklyCellMutation.mutate({ ...pendingCellReplace.payload, replaceExisting: true })}
                 disabled={copyWeeklyCellMutation.isPending}
               >
-                Delete and paste
+                {copyWeeklyCellMutation.isPending ? "Pasting..." : "Delete and paste"}
               </button>
             </div>
           </div>
@@ -663,11 +673,17 @@ export function WeeklyRosterPage() {
                   className="primary-button"
                   type="button"
                   onClick={async () => {
-                    setPdfValidationDialog(null);
-                    await downloadCurrentPdf();
+                    setPdfPending(true);
+                    try {
+                      setPdfValidationDialog(null);
+                      await downloadCurrentPdf();
+                    } finally {
+                      setPdfPending(false);
+                    }
                   }}
+                  disabled={pdfPending}
                 >
-                  Download anyway
+                  {pdfPending ? "Downloading..." : "Download anyway"}
                 </button>
               )}
             </div>
@@ -725,14 +741,14 @@ export function WeeklyRosterPage() {
                 }}
                 disabled={removeDayMarkerMutation.isPending}
               >
-                Remove
+                {removeDayMarkerMutation.isPending ? "Removing..." : "Remove"}
               </button>
               <div className="right-actions">
                 <button className="secondary-button" type="button" onClick={() => setDayMarkerModal(null)}>
                   Close
                 </button>
                 <button className="primary-button" type="submit" disabled={setDayMarkerMutation.isPending}>
-                  Save
+                  {setDayMarkerMutation.isPending ? "Saving..." : "Save"}
                 </button>
               </div>
             </div>
