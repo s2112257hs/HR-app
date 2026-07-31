@@ -5,6 +5,7 @@ import { AuditService } from "../audit/audit.service";
 import { AuthenticatedUser } from "../common/types/authenticated-user";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateValidationRuleDto } from "./dto/create-validation-rule.dto";
+import { UpdateRdoBalancesDto } from "./dto/update-rdo-balances.dto";
 import { UpdateSettingsDto } from "./dto/update-settings.dto";
 import { UpdateValidationRuleDto } from "./dto/update-validation-rule.dto";
 
@@ -91,6 +92,92 @@ export class SettingsService {
     });
 
     return this.toResponse(updated);
+  }
+
+  async listRdoBalances(organisationId: string) {
+    const employees = await this.prisma.employee.findMany({
+      where: {
+        organisationId,
+        isActive: true,
+        deletedAt: null
+      },
+      include: {
+        primaryDepartment: {
+          select: {
+            id: true,
+            name: true,
+            shortCode: true,
+            colourHex: true,
+            displayOrder: true
+          }
+        }
+      },
+      orderBy: [{ displayOrder: "asc" }, { firstName: "asc" }]
+    });
+
+    return employees.map((employee) => ({
+      employeeId: employee.id,
+      displayName: employee.preferredName || [employee.firstName, employee.lastName].filter(Boolean).join(" "),
+      primaryDepartment: employee.primaryDepartment
+        ? {
+            id: employee.primaryDepartment.id,
+            name: employee.primaryDepartment.name,
+            shortCode: employee.primaryDepartment.shortCode,
+            colourHex: employee.primaryDepartment.colourHex
+          }
+        : null,
+      rdoBalanceBroughtForward: employee.rdoBalanceBroughtForward
+    }));
+  }
+
+  async updateRdoBalances(currentUser: AuthenticatedUser, dto: UpdateRdoBalancesDto) {
+    const employeeIds = dto.balances.map((balance) => balance.employeeId);
+    const activeEmployees = await this.prisma.employee.findMany({
+      where: {
+        organisationId: currentUser.organisationId,
+        id: { in: employeeIds },
+        isActive: true,
+        deletedAt: null
+      },
+      select: {
+        id: true,
+        rdoBalanceBroughtForward: true
+      }
+    });
+    const activeIds = new Set(activeEmployees.map((employee) => employee.id));
+    const missingId = employeeIds.find((employeeId) => !activeIds.has(employeeId));
+
+    if (missingId) {
+      throw this.validationError("balances", "RDO balance can only be set for active employees in this organisation.");
+    }
+
+    await this.prisma.$transaction(
+      dto.balances.map((balance) =>
+        this.prisma.employee.updateMany({
+          where: {
+            id: balance.employeeId,
+            organisationId: currentUser.organisationId,
+            isActive: true,
+            deletedAt: null
+          },
+          data: {
+            rdoBalanceBroughtForward: balance.rdoBalanceBroughtForward
+          }
+        })
+      )
+    );
+
+    await this.auditService.record({
+      organisationId: currentUser.organisationId,
+      userId: currentUser.sub,
+      action: "RDO_BALANCES_UPDATED",
+      entityType: "Employee",
+      entityId: currentUser.organisationId,
+      beforeData: activeEmployees as Prisma.InputJsonValue,
+      afterData: dto.balances as unknown as Prisma.InputJsonValue
+    });
+
+    return this.listRdoBalances(currentUser.organisationId);
   }
 
   async listValidationRules(organisationId: string) {

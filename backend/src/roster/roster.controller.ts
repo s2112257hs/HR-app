@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Patch, Post, Query, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiQuery, ApiTags } from "@nestjs/swagger";
 import { UserRole } from "@prisma/client";
 import { CurrentUser } from "../common/decorators/current-user.decorator";
@@ -6,15 +6,20 @@ import { Roles } from "../common/decorators/roles.decorator";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { RolesGuard } from "../common/guards/roles.guard";
 import { AuthenticatedUser } from "../common/types/authenticated-user";
+import { RosterLocksService } from "../roster-locks/roster-locks.service";
 import { CopyWeeklyCellDto } from "./dto/copy-weekly-cell.dto";
 import { RosterService } from "./roster.service";
+import { ClearWeeklyCellsDto, RestoreWeeklyCellsDto } from "./dto/weekly-cells.dto";
 
 @ApiTags("roster")
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller("roster")
 export class RosterController {
-  constructor(private readonly rosterService: RosterService) {}
+  constructor(
+    private readonly rosterService: RosterService,
+    private readonly rosterLocksService: RosterLocksService
+  ) {}
 
   @Get("daily")
   @Roles(UserRole.VIEWER)
@@ -42,5 +47,47 @@ export class RosterController {
   @Roles(UserRole.ROSTER_MANAGER)
   copyWeeklyCell(@CurrentUser() user: AuthenticatedUser, @Body() dto: CopyWeeklyCellDto) {
     return this.rosterService.copyWeeklyCell(user, dto);
+  }
+
+  @Post("weekly-cells-clear")
+  @Roles(UserRole.ROSTER_MANAGER)
+  clearWeeklyCells(@CurrentUser() user: AuthenticatedUser, @Body() dto: ClearWeeklyCellsDto) {
+    return this.rosterService.clearWeeklyCellsForUser(user, dto);
+  }
+
+  @Post("weekly-cells-restore")
+  @Roles(UserRole.ROSTER_MANAGER)
+  restoreWeeklyCells(@CurrentUser() user: AuthenticatedUser, @Body() dto: RestoreWeeklyCellsDto) {
+    return this.rosterService.restoreWeeklyCells(user, dto);
+  }
+
+  @Get("lock")
+  @Roles(UserRole.ROSTER_MANAGER)
+  lockStatus(@CurrentUser() user: AuthenticatedUser) {
+    return this.rosterLocksService.status(user.organisationId);
+  }
+
+  @Post("lock")
+  @Roles(UserRole.ROSTER_MANAGER)
+  acquireLock(@CurrentUser() user: AuthenticatedUser) {
+    return this.rosterLocksService.acquire(user);
+  }
+
+  @Patch("lock")
+  @Roles(UserRole.ROSTER_MANAGER)
+  heartbeatLock(@CurrentUser() user: AuthenticatedUser) {
+    return this.rosterLocksService.heartbeat(user);
+  }
+
+  @Post("lock/steal")
+  @Roles(UserRole.ROSTER_MANAGER)
+  stealLock(@CurrentUser() user: AuthenticatedUser) {
+    return this.rosterLocksService.steal(user);
+  }
+
+  @Post("lock/release")
+  @Roles(UserRole.ROSTER_MANAGER)
+  releaseLock(@CurrentUser() user: AuthenticatedUser) {
+    return this.rosterLocksService.release(user);
   }
 }

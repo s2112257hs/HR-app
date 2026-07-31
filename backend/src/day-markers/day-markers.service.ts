@@ -5,6 +5,7 @@ import { AuditService } from "../audit/audit.service";
 import { AuthenticatedUser } from "../common/types/authenticated-user";
 import { buildRosterRange } from "../common/utils/roster-dates";
 import { PrismaService } from "../prisma/prisma.service";
+import { RosterLocksService } from "../roster-locks/roster-locks.service";
 import { SetDayMarkerDto } from "./dto/set-day-marker.dto";
 
 const EMPLOYEE_INCLUDE = {
@@ -27,10 +28,12 @@ const EMPLOYEE_INCLUDE = {
 export class DayMarkersService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly auditService: AuditService
+    private readonly auditService: AuditService,
+    private readonly rosterLocksService: RosterLocksService
   ) {}
 
   async set(currentUser: AuthenticatedUser, dto: SetDayMarkerDto) {
+    await this.rosterLocksService.assertWritable(currentUser);
     const organisation = await this.prisma.organisation.findUniqueOrThrow({
       where: { id: currentUser.organisationId },
       select: { timezone: true }
@@ -111,6 +114,7 @@ export class DayMarkersService {
   }
 
   async remove(currentUser: AuthenticatedUser, id: string) {
+    await this.rosterLocksService.assertWritable(currentUser);
     const marker = await this.prisma.dayMarker.findFirst({
       where: { id, organisationId: currentUser.organisationId }
     });
@@ -177,6 +181,7 @@ export class DayMarkersService {
         const trackingStart = this.trackingStart(organisation.rdoTrackingStartDate, employee.startDate, asOfEnd);
         const requiredRdo = this.requiredRdoCount(trackingStart, asOfEnd);
         const rdoTaken = employee.dayMarkers.filter((marker) => DateTime.fromJSDate(marker.date, { zone: "utc" }) >= trackingStart).length;
+        const rdoBalanceBroughtForward = employee.rdoBalanceBroughtForward;
 
         return {
           employeeId: employee.id,
@@ -191,9 +196,10 @@ export class DayMarkersService {
               }
             : null,
           trackingStartDate: trackingStart.toISODate(),
+          rdoBalanceBroughtForward,
           requiredRdo,
           rdoTaken,
-          rdoOwed: requiredRdo - rdoTaken
+          rdoOwed: rdoBalanceBroughtForward + requiredRdo - rdoTaken
         };
       })
     };

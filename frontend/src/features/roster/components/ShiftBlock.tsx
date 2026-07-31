@@ -2,7 +2,7 @@ import { AlertTriangle } from "lucide-react";
 import type { DragEvent } from "react";
 import { Shift } from "../../../types/api";
 import { getContrastText } from "../../../utilities/colour";
-import { timeLabel } from "../utilities/dates";
+import { timeLabel12 } from "../utilities/dates";
 
 type Props = {
   shift: Shift;
@@ -31,7 +31,7 @@ export function ShiftBlock({ shift, leftPercent, widthPercent, lane, onClick, on
         background,
         color
       }}
-      title={`${shift.department.name} ${timeLabel(shift.startAt)}-${timeLabel(shift.endAt)}`}
+      title={`${shift.department.name} ${timeLabel12(shift.startAt)}-${timeLabel12(shift.endAt)}`}
       onClick={(event) => {
         event.stopPropagation();
         onClick();
@@ -53,7 +53,7 @@ export function ShiftBlock({ shift, leftPercent, widthPercent, lane, onClick, on
     >
       <span>{shift.department.shortCode}</span>
       <time>
-        {timeLabel(shift.startAt)}-{timeLabel(shift.endAt)}
+        {timeLabel12(shift.startAt)}-{timeLabel12(shift.endAt)}
       </time>
       {shift.hasOverlap && <AlertTriangle size={13} aria-label="Overlap" />}
     </button>

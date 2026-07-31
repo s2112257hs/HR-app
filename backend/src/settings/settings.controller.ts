@@ -7,6 +7,7 @@ import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { RolesGuard } from "../common/guards/roles.guard";
 import { AuthenticatedUser } from "../common/types/authenticated-user";
 import { CreateValidationRuleDto } from "./dto/create-validation-rule.dto";
+import { UpdateRdoBalancesDto } from "./dto/update-rdo-balances.dto";
 import { UpdateSettingsDto } from "./dto/update-settings.dto";
 import { UpdateValidationRuleDto } from "./dto/update-validation-rule.dto";
 import { SettingsService } from "./settings.service";
@@ -28,6 +29,18 @@ export class SettingsController {
   @Roles(UserRole.ADMIN)
   update(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpdateSettingsDto) {
     return this.settingsService.update(user, dto);
+  }
+
+  @Get("rdo-balances")
+  @Roles(UserRole.ADMIN)
+  listRdoBalances(@CurrentUser() user: AuthenticatedUser) {
+    return this.settingsService.listRdoBalances(user.organisationId);
+  }
+
+  @Patch("rdo-balances")
+  @Roles(UserRole.ADMIN)
+  updateRdoBalances(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpdateRdoBalancesDto) {
+    return this.settingsService.updateRdoBalances(user, dto);
   }
 
   @Get("validation-rules")

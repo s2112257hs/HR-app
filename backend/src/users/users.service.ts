@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import * as bcrypt from "bcryptjs";
 import { AuditService } from "../audit/audit.service";
@@ -23,15 +23,23 @@ export class UsersService {
   }
 
   async create(currentUser: AuthenticatedUser, dto: CreateUserDto) {
-    const created = await this.prisma.user.create({
-      data: {
-        organisationId: currentUser.organisationId,
-        name: dto.name.trim(),
-        email: dto.email.trim().toLowerCase(),
-        passwordHash: await bcrypt.hash(dto.password, 12),
-        role: dto.role
-      },
-      select: this.safeSelect()
+    if (dto.organisationId && dto.organisationId !== currentUser.organisationId) {
+      throw new BadRequestException({
+        error: "VALIDATION_ERROR",
+        message: "Organisation does not match the signed-in user.",
+        fields: {
+          organisationId: "Organisation does not match the signed-in user."
+        }
+      });
+    }
+
+    const created = await this.createOrThrowFriendly({
+      organisationId: currentUser.organisationId,
+      name: dto.name.trim(),
+      username: this.trimOptionalLower(dto.username),
+      email: dto.email.trim().toLowerCase(),
+      passwordHash: await bcrypt.hash(dto.password, 12),
+      role: dto.role
     });
     await this.auditService.record({
       organisationId: currentUser.organisationId,
@@ -51,15 +59,12 @@ export class UsersService {
     });
     const data: Prisma.UserUpdateInput = {};
     if (dto.name !== undefined) data.name = dto.name.trim();
+    if (dto.username !== undefined) data.username = this.trimOptionalLower(dto.username);
     if (dto.email !== undefined) data.email = dto.email.trim().toLowerCase();
     if (dto.role !== undefined) data.role = dto.role;
     if (dto.password !== undefined) data.passwordHash = await bcrypt.hash(dto.password, 12);
 
-    const updated = await this.prisma.user.update({
-      where: { id },
-      data,
-      select: this.safeSelect()
-    });
+    const updated = await this.updateOrThrowFriendly(id, data);
     await this.auditService.record({
       organisationId: currentUser.organisationId,
       userId: currentUser.sub,
@@ -99,6 +104,7 @@ export class UsersService {
       id: true,
       organisationId: true,
       name: true,
+      username: true,
       email: true,
       role: true,
       isActive: true,
@@ -106,5 +112,63 @@ export class UsersService {
       createdAt: true,
       updatedAt: true
     };
+  }
+
+  private async createOrThrowFriendly(data: Prisma.UserCreateInput | Prisma.UserUncheckedCreateInput) {
+    try {
+      return await this.prisma.user.create({
+        data,
+        select: this.safeSelect()
+      });
+    } catch (error) {
+      this.throwFriendlyUniqueError(error);
+      throw error;
+    }
+  }
+
+  private async updateOrThrowFriendly(id: string, data: Prisma.UserUpdateInput) {
+    try {
+      return await this.prisma.user.update({
+        where: { id },
+        data,
+        select: this.safeSelect()
+      });
+    } catch (error) {
+      this.throwFriendlyUniqueError(error);
+      throw error;
+    }
+  }
+
+  private trimOptionalLower(value?: string | null): string | null | undefined {
+    if (value === undefined) {
+      return undefined;
+    }
+    if (value === null) {
+      return null;
+    }
+
+    const trimmed = value.trim().toLowerCase();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  private throwFriendlyUniqueError(error: unknown) {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
+      return;
+    }
+
+    const target = Array.isArray(error.meta?.target) ? error.meta.target.join(",") : String(error.meta?.target ?? "");
+    if (target.includes("username")) {
+      throw new ConflictException({
+        error: "UNIQUE_CONSTRAINT",
+        message: "Username is already in use.",
+        fields: { username: "Username is already in use." }
+      });
+    }
+
+    throw new ConflictException({
+      error: "UNIQUE_CONSTRAINT",
+      message: "Email is already in use.",
+      fields: { email: "Email is already in use." }
+    });
   }
 }

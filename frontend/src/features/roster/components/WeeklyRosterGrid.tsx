@@ -1,8 +1,7 @@
-import { Plus } from "lucide-react";
 import { useState } from "react";
 import type { CSSProperties, PointerEvent } from "react";
 import { DayMarker, DayMarkerType, RosterEmployee, Shift } from "../../../types/api";
-import { dateKeyFromIso, dateLabel } from "../utilities/dates";
+import { dateLabel, shiftAppearsOnWeeklyDate } from "../utilities/dates";
 import { WeeklyShiftLine } from "./WeeklyShiftLine";
 
 type Props = {
@@ -15,6 +14,9 @@ type Props = {
   onCopyCell: (employeeId: string, sourceDate: string, targetStartDate: string, targetEndDate: string) => void;
   onOpenDate: (date: string) => void;
   canEditDate: (date: string) => boolean;
+  selectMode?: boolean;
+  selectedCells?: Set<string>;
+  onToggleCellSelection?: (employeeId: string, date: string) => void;
 };
 
 type FillDrag = {
@@ -32,7 +34,10 @@ export function WeeklyRosterGrid({
   onEditDayMarker,
   onCopyCell,
   onOpenDate,
-  canEditDate
+  canEditDate,
+  selectMode = false,
+  selectedCells = new Set(),
+  onToggleCellSelection
 }: Props) {
   const [fillDrag, setFillDrag] = useState<FillDrag | null>(null);
 
@@ -95,32 +100,56 @@ export function WeeklyRosterGrid({
             const fillTargetIndex = fillDrag?.employeeId === employee.id ? dates.indexOf(fillDrag.targetDate) : -1;
             const fillHighlighted = sourceIndex >= 0 && dateIndex > sourceIndex && dateIndex <= fillTargetIndex;
             const canCopyCell = editable && dateIndex < dates.length - 1 && Boolean(marker || shifts.length > 0);
+            const cellKey = `${employee.id}|${date}`;
+            const selected = selectedCells.has(cellKey);
 
             return (
               <div
-                className={`weekly-cell ${editable ? "" : "locked"} ${marker ? "has-day-marker" : ""} ${fillHighlighted ? "fill-target" : ""}`}
-                key={`${employee.id}-${date}`}
+                className={`weekly-cell ${editable ? "" : "locked"} ${marker ? "has-day-marker" : ""} ${fillHighlighted ? "fill-target" : ""} ${selected ? "selected" : ""}`}
+                key={cellKey}
                 role={editable && !marker ? "button" : undefined}
                 tabIndex={editable && !marker ? 0 : undefined}
                 onClick={() => {
+                  if (selectMode) {
+                    if (editable) {
+                      onToggleCellSelection?.(employee.id, date);
+                    }
+                    return;
+                  }
                   if (editable && !marker) {
                     onCreateShift(employee.id, date);
                   }
                 }}
                 onKeyDown={(event) => {
+                  if (selectMode && (event.key === "Enter" || event.key === " ")) {
+                    event.preventDefault();
+                    if (editable) {
+                      onToggleCellSelection?.(employee.id, date);
+                    }
+                    return;
+                  }
                   if (editable && !marker && event.key === "Enter") {
                     onCreateShift(employee.id, date);
                   }
                 }}
               >
+                {selectMode && (
+                  <span className="weekly-cell-selector" aria-hidden="true">
+                    {selected ? "✓" : ""}
+                  </span>
+                )}
                 {marker ? (
                   <button
                     className={`day-marker-block ${marker.type.toLowerCase()}`}
                     type="button"
-                    title={marker.type === "RDO" ? "Roster day off" : "Leave"}
+                    title={markerTitle(marker.type)}
                     onClick={(event) => {
                       event.stopPropagation();
                       if (editable) {
+                        if (selectMode) {
+                          onToggleCellSelection?.(employee.id, date);
+                          return;
+                        }
                         onEditDayMarker(employee, date, marker);
                       }
                     }}
@@ -128,12 +157,7 @@ export function WeeklyRosterGrid({
                     <strong>{marker.type}</strong>
                   </button>
                 ) : null}
-                {editable && !marker && (
-                  <span className="cell-plus" aria-label="Add shift">
-                    <Plus size={15} aria-hidden="true" />
-                  </span>
-                )}
-                {editable && !marker && (
+                {editable && !marker && !selectMode && (
                   <div className="weekly-marker-actions" aria-label="Day marker actions">
                     <button
                       type="button"
@@ -153,13 +177,34 @@ export function WeeklyRosterGrid({
                     >
                       LEAVE
                     </button>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onSetDayMarker(employee.id, date, "SICK");
+                      }}
+                    >
+                      SICK
+                    </button>
                   </div>
                 )}
                 {!marker &&
                   shifts.map((shift) => (
-                    <WeeklyShiftLine key={shift.id} shift={shift} date={date} onClick={() => onEditShift(employee.id, shift)} />
+                    <WeeklyShiftLine
+                      key={shift.id}
+                      shift={shift}
+                      onClick={() => {
+                        if (selectMode) {
+                          if (editable) {
+                            onToggleCellSelection?.(employee.id, date);
+                          }
+                          return;
+                        }
+                        onEditShift(employee.id, shift);
+                      }}
+                    />
                   ))}
-                {canCopyCell && (
+                {canCopyCell && !selectMode && (
                   <button
                     className="weekly-fill-handle"
                     type="button"
@@ -195,5 +240,15 @@ export function WeeklyRosterGrid({
 }
 
 function shiftAppearsOnDate(shift: Shift, date: string) {
-  return shift.rosterSegments ? shift.rosterSegments.some((segment) => segment.date === date) : dateKeyFromIso(shift.startAt) === date;
+  return shiftAppearsOnWeeklyDate(shift, date);
+}
+
+function markerTitle(type: DayMarkerType) {
+  if (type === "RDO") {
+    return "Roster day off";
+  }
+  if (type === "SICK") {
+    return "Sick leave";
+  }
+  return "Leave";
 }

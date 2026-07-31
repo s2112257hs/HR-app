@@ -36,6 +36,13 @@ export function updateEmployee(id: string, payload: Partial<EmployeePayload>) {
   });
 }
 
+export function reorderEmployees(employeeIds: string[]) {
+  return apiRequest<Employee[]>("/employees/reorder", {
+    method: "PATCH",
+    ...jsonBody({ employeeIds })
+  });
+}
+
 export function deactivateEmployee(id: string) {
   return apiRequest<Employee>(`/employees/${id}`, { method: "DELETE" });
 }

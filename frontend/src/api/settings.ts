@@ -1,5 +1,5 @@
 import { apiRequest, jsonBody } from "./client";
-import { ValidationRule } from "../types/api";
+import { ShiftDepartment, ValidationRule } from "../types/api";
 
 export type OrganisationSettings = {
   id: string;
@@ -16,6 +16,24 @@ export function updateSettings(payload: { rdoTrackingStartDate: string }) {
   return apiRequest<OrganisationSettings>("/settings", {
     method: "PATCH",
     ...jsonBody(payload)
+  });
+}
+
+export type RdoBalanceSetting = {
+  employeeId: string;
+  displayName: string;
+  primaryDepartment?: ShiftDepartment | null;
+  rdoBalanceBroughtForward: number;
+};
+
+export function fetchRdoBalances() {
+  return apiRequest<RdoBalanceSetting[]>("/settings/rdo-balances");
+}
+
+export function updateRdoBalances(balances: Array<{ employeeId: string; rdoBalanceBroughtForward: number }>) {
+  return apiRequest<RdoBalanceSetting[]>("/settings/rdo-balances", {
+    method: "PATCH",
+    ...jsonBody({ balances })
   });
 }
 

@@ -44,9 +44,10 @@ type Props = {
   employees: Employee[];
   departments: Department[];
   onClose: () => void;
+  onBeforeMutation?: (cells: Array<{ employeeId: string; date: string }>) => boolean;
 };
 
-export function ShiftModal({ state, employees, departments, onClose }: Props) {
+export function ShiftModal({ state, employees, departments, onClose, onBeforeMutation }: Props) {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [overlaps, setOverlaps] = useState<OverlapCheckResponse["overlaps"] | null>(null);
@@ -165,14 +166,27 @@ export function ShiftModal({ state, employees, departments, onClose }: Props) {
       return;
     }
 
+    if (onBeforeMutation && !onBeforeMutation(cellsForValues(state, values))) {
+      return;
+    }
+
     saveMutation.mutate(values);
   });
 
   const confirmOverlap = () => {
-    saveMutation.mutate({
-      ...getValues(),
-      overlapAcknowledged: true
-    });
+    const values = getValues();
+    if (onBeforeMutation && !onBeforeMutation(cellsForValues(state, values))) {
+      return;
+    }
+    saveMutation.mutate({ ...values, overlapAcknowledged: true });
+  };
+
+  const cancelShift = () => {
+    if (state.mode === "edit" && onBeforeMutation?.([{ employeeId: state.employeeId, date: dateKeyFromIso(state.shift.startAt) }]) === false) {
+      return;
+    }
+
+    deleteMutation.mutate();
   };
 
   return (
@@ -240,7 +254,7 @@ export function ShiftModal({ state, employees, departments, onClose }: Props) {
           )}
           <div className="dialog-actions split">
             {state.mode === "edit" && (
-              <button className="danger-button" type="button" onClick={() => deleteMutation.mutate()} disabled={!canEdit || deleteMutation.isPending}>
+              <button className="danger-button" type="button" onClick={cancelShift} disabled={!canEdit || deleteMutation.isPending}>
                 <Trash2 size={16} aria-hidden="true" />
                 Cancel shift
               </button>
@@ -266,6 +280,17 @@ export function ShiftModal({ state, employees, departments, onClose }: Props) {
       )}
     </>
   );
+}
+
+function cellsForValues(state: ShiftModalState, values: ShiftForm) {
+  const cells = [{ employeeId: values.employeeId, date: values.date }];
+  if (state.mode === "edit") {
+    const oldCell = { employeeId: state.employeeId, date: dateKeyFromIso(state.shift.startAt) };
+    if (!cells.some((cell) => cell.employeeId === oldCell.employeeId && cell.date === oldCell.date)) {
+      cells.push(oldCell);
+    }
+  }
+  return cells;
 }
 
 function toShiftFormField(field: string) {

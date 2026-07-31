@@ -10,11 +10,12 @@ type AuthResponse = {
 
 type AuthContextValue = {
   user: User | null;
-  login: (email: string, password: string) => Promise<void>;
+  login: (identifier: string, password: string) => Promise<void>;
   logout: () => void;
 };
 
 const AUTH_USER_KEY = "hr-roster-user";
+const INACTIVITY_LIMIT_MS = 30 * 60 * 1000;
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -35,13 +36,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener(AUTH_EXPIRED_EVENT, expireSession);
   }, []);
 
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    let timeoutId = window.setTimeout(expireForInactivity, INACTIVITY_LIMIT_MS);
+    const resetTimer = () => {
+      window.clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(expireForInactivity, INACTIVITY_LIMIT_MS);
+    };
+    const events: Array<keyof WindowEventMap> = ["mousemove", "mousedown", "keydown", "touchstart", "scroll"];
+
+    function expireForInactivity() {
+      setAccessToken(null);
+      setRefreshToken(null);
+      localStorage.removeItem(AUTH_USER_KEY);
+      setUser(null);
+    }
+
+    events.forEach((eventName) => window.addEventListener(eventName, resetTimer, { passive: true }));
+    return () => {
+      window.clearTimeout(timeoutId);
+      events.forEach((eventName) => window.removeEventListener(eventName, resetTimer));
+    };
+  }, [user]);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
-      login: async (email: string, password: string) => {
+      login: async (identifier: string, password: string) => {
         const response = await apiRequest<AuthResponse>("/auth/login", {
           method: "POST",
-          body: JSON.stringify({ email, password })
+          body: JSON.stringify({ email: identifier, password })
         });
         setAccessToken(response.accessToken);
         setRefreshToken(response.refreshToken);

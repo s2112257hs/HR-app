@@ -25,6 +25,13 @@ export function updateDepartment(id: string, payload: Partial<DepartmentPayload>
   });
 }
 
+export function reorderDepartments(departmentIds: string[]) {
+  return apiRequest<Department[]>("/departments/reorder", {
+    method: "PATCH",
+    ...jsonBody({ departmentIds })
+  });
+}
+
 export function deactivateDepartment(id: string) {
   return apiRequest<Department>(`/departments/${id}`, { method: "DELETE" });
 }
@@ -32,4 +39,3 @@ export function deactivateDepartment(id: string) {
 export function restoreDepartment(id: string) {
   return apiRequest<Department>(`/departments/${id}/restore`, { method: "PATCH" });
 }
-

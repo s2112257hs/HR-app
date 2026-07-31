@@ -1,6 +1,6 @@
 import { jsPDF } from "jspdf";
 import { DayMarker, RosterResponse, Shift } from "../../../types/api";
-import { dateKeyFromIso, dateLabel, isNextDay, timeLabel } from "./dates";
+import { dateLabel, shiftAppearsOnWeeklyDate, weeklyShiftTimeText } from "./dates";
 
 const PAGE_MARGIN = 28;
 const EMPLOYEE_COLUMN_WIDTH = 92;
@@ -75,7 +75,7 @@ export function downloadWeeklyRosterPdf(roster: RosterResponse, options: PdfOpti
       if (marker) {
         drawDayMarker(doc, marker, x, y, dateColumnWidth, rowHeight, Boolean(options.darkMode));
       } else {
-        drawShiftLines(doc, getShiftsForDate(employee.shifts, date), date, x, y, dateColumnWidth, colours, Boolean(options.darkMode));
+        drawShiftLines(doc, getShiftsForDate(employee.shifts, date), x, y, dateColumnWidth, colours, Boolean(options.darkMode));
       }
     });
 
@@ -120,13 +120,12 @@ function drawHeader(doc: jsPDF, dates: string[], y: number, dateColumnWidth: num
   });
 }
 
-function drawShiftLines(doc: jsPDF, shifts: Shift[], date: string, x: number, y: number, width: number, colours: PdfColours, darkMode: boolean) {
+function drawShiftLines(doc: jsPDF, shifts: Shift[], x: number, y: number, width: number, colours: PdfColours, darkMode: boolean) {
   shifts.forEach((shift, index) => {
     const lineY = y + CELL_PADDING + index * 16;
     const departmentRgb = hexToRgb(shift.department.colourHex);
     const tint = mixRgb(departmentRgb, darkMode ? colours.panel : [255, 255, 255], darkMode ? 0.42 : 0.78);
-    const segment = shift.rosterSegments?.find((segment) => segment.date === date);
-    const timeText = segment ? `${segment.startTime}-${segment.endTime}` : `${timeLabel(shift.startAt)}-${timeLabel(shift.endAt)}${isNextDay(shift.startAt, shift.endAt) ? " +1" : ""}`;
+    const timeText = weeklyShiftTimeText(shift);
     const text = `${shift.department.shortCode} ${timeText}${shift.hasOverlap ? " !" : ""}`;
 
     doc.setFillColor(...tint);
@@ -142,7 +141,7 @@ function drawShiftLines(doc: jsPDF, shifts: Shift[], date: string, x: number, y:
 }
 
 function drawDayMarker(doc: jsPDF, marker: DayMarker, x: number, y: number, width: number, height: number, darkMode: boolean) {
-  if (marker.type === "RDO" || marker.type === "LEAVE") {
+  if (marker.type === "RDO" || marker.type === "LEAVE" || marker.type === "SICK") {
     doc.setFillColor(0, 0, 0);
     doc.setDrawColor(255, 45, 45);
     doc.rect(x, y, width, height, "FD");
@@ -169,7 +168,7 @@ function getRowHeight(dates: string[], shifts: Shift[], dayMarkers: DayMarker[])
 
 function getShiftsForDate(shifts: Shift[], date: string) {
   return shifts
-    .filter((shift) => (shift.rosterSegments ? shift.rosterSegments.some((segment) => segment.date === date) : dateKeyFromIso(shift.startAt) === date))
+    .filter((shift) => shiftAppearsOnWeeklyDate(shift, date))
     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
 }
 

@@ -8,11 +8,11 @@ import { HttpErrorFilter } from "./common/filters/http-error.filter";
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
-  const frontendOrigin = configService.get<string>("FRONTEND_ORIGIN") ?? "http://localhost:5173";
+  const frontendOrigins = parseOrigins(configService.get<string>("FRONTEND_ORIGIN") ?? "http://localhost:5173");
 
   app.setGlobalPrefix("api/v1");
   app.enableCors({
-    origin: frontendOrigin,
+    origin: frontendOrigins,
     credentials: true
   });
   app.useGlobalPipes(
@@ -39,3 +39,9 @@ async function bootstrap() {
 
 void bootstrap();
 
+function parseOrigins(value: string) {
+  return value
+    .split(",")
+    .map((origin) => origin.trim().replace(/\/$/, ""))
+    .filter(Boolean);
+}

@@ -1,10 +1,11 @@
 export type UserRole = "ADMIN" | "ROSTER_MANAGER" | "VIEWER";
-export type DayMarkerType = "RDO" | "LEAVE";
+export type DayMarkerType = "RDO" | "LEAVE" | "SICK";
 
 export type User = {
   id: string;
   organisationId: string;
   name: string;
+  username?: string | null;
   email: string;
   role: UserRole;
   isActive?: boolean;
@@ -24,6 +25,7 @@ export type Employee = {
   endDate?: string | null;
   primaryDepartmentId?: string | null;
   primaryDepartment?: ShiftDepartment | null;
+  rdoBalanceBroughtForward?: number;
   displayOrder?: number;
   isActive: boolean;
   deletedAt?: string | null;
@@ -154,6 +156,27 @@ export type ApiErrorBody = {
     shiftCount: number;
     markerType?: DayMarkerType | null;
   }>;
+  targetDates?: Array<{
+    date: string;
+    shiftCount: number;
+    markerCount: number;
+  }>;
+  lock?: RosterLock | null;
+};
+
+export type RosterLock = {
+  id: string;
+  lockedByUserId: string;
+  lockedByName: string;
+  lockedByEmail: string;
+  lockedByUsername?: string | null;
+  expiresAt: string;
+  token: string;
+};
+
+export type RosterLockResponse = {
+  locked: boolean;
+  lock: RosterLock | null;
 };
 
 export type RdoTrackerResponse = {
@@ -165,6 +188,7 @@ export type RdoTrackerResponse = {
     displayName: string;
     primaryDepartment?: ShiftDepartment | null;
     trackingStartDate: string;
+    rdoBalanceBroughtForward: number;
     requiredRdo: number;
     rdoTaken: number;
     rdoOwed: number;

@@ -1,5 +1,5 @@
 import { apiRequest, jsonBody } from "./client";
-import { OverlapCheckResponse, RosterResponse, RosterValidationResponse, Shift } from "../types/api";
+import { DayMarkerType, OverlapCheckResponse, RosterLockResponse, RosterResponse, RosterValidationResponse, Shift } from "../types/api";
 
 export type ShiftPayload = {
   employeeId: string;
@@ -15,24 +15,6 @@ export type UpdateShiftPayload = Partial<ShiftPayload> & {
   version: number;
 };
 
-export type CopyDailySchedulePayload = {
-  sourceDate: string;
-  targetStartDate: string;
-  targetEndDate: string;
-  startTime?: string;
-  overlapAcknowledged?: boolean;
-};
-
-export type CopyDailyScheduleResponse = {
-  sourceDate: string;
-  targetStartDate: string;
-  targetEndDate: string;
-  startTime: string;
-  copiedCount: number;
-  skippedDates: string[];
-  createdShiftIds: string[];
-};
-
 export type CopyWeeklyCellPayload = {
   employeeId: string;
   sourceDate: string;
@@ -42,9 +24,28 @@ export type CopyWeeklyCellPayload = {
 };
 
 export type CopyWeeklyCellResponse = {
-  copiedKind: "SHIFT" | "RDO" | "LEAVE" | "EMPTY";
+  copiedKind: "SHIFT" | DayMarkerType | "EMPTY";
   copiedCount: number;
   targetDates: string[];
+};
+
+export type WeeklyCellKey = {
+  employeeId: string;
+  date: string;
+};
+
+export type WeeklyCellSnapshot = WeeklyCellKey & {
+  marker?: {
+    type: DayMarkerType;
+    notes?: string | null;
+  } | null;
+  shifts: Array<{
+    departmentId: string;
+    startAt: string;
+    endAt: string;
+    unpaidBreakMinutes: number;
+    notes?: string | null;
+  }>;
 };
 
 export function fetchDailyRoster(date: string, startTime = "00:00") {
@@ -72,18 +73,45 @@ export function checkShiftOverlap(payload: {
   });
 }
 
-export function copyDailySchedule(payload: CopyDailySchedulePayload) {
-  return apiRequest<CopyDailyScheduleResponse>("/shifts/copy-daily", {
-    method: "POST",
-    ...jsonBody(payload)
-  });
-}
-
 export function copyWeeklyCell(payload: CopyWeeklyCellPayload) {
   return apiRequest<CopyWeeklyCellResponse>("/roster/weekly-cell-copy", {
     method: "POST",
     ...jsonBody(payload)
   });
+}
+
+export function clearWeeklyCells(cells: WeeklyCellKey[]) {
+  return apiRequest<{ clearedCount: number }>("/roster/weekly-cells-clear", {
+    method: "POST",
+    ...jsonBody({ cells })
+  });
+}
+
+export function restoreWeeklyCells(cells: WeeklyCellSnapshot[]) {
+  return apiRequest<{ restoredCount: number }>("/roster/weekly-cells-restore", {
+    method: "POST",
+    ...jsonBody({ cells })
+  });
+}
+
+export function fetchRosterLock() {
+  return apiRequest<RosterLockResponse>("/roster/lock");
+}
+
+export function acquireRosterLock() {
+  return apiRequest<RosterLockResponse>("/roster/lock", { method: "POST" });
+}
+
+export function heartbeatRosterLock() {
+  return apiRequest<RosterLockResponse>("/roster/lock", { method: "PATCH" });
+}
+
+export function stealRosterLock() {
+  return apiRequest<RosterLockResponse>("/roster/lock/steal", { method: "POST" });
+}
+
+export function releaseRosterLock() {
+  return apiRequest<RosterLockResponse>("/roster/lock/release", { method: "POST" });
 }
 
 export function createShift(payload: ShiftPayload) {

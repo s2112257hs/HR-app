@@ -1,6 +1,7 @@
 import { DayMarker, RosterEmployee, Shift } from "../../../types/api";
 import { ShiftBlock } from "./ShiftBlock";
 import { clampMinutes, getGridHours, GRID_SNAP_MINUTES, minutesToTime, parseTimeToMinutes, snapMinutes, VIEW_WINDOW_MINUTES } from "../utilities/time";
+import { clockLabel12 } from "../utilities/dates";
 import type { CSSProperties, DragEvent, PointerEvent } from "react";
 import { useState } from "react";
 
@@ -94,7 +95,7 @@ export function DailyRosterGrid({ date, windowStartTime, windowStartAt, timezone
         <div className="employee-header">Employee</div>
         <div className="time-header">
           {hours.map((hour) => (
-            <span key={hour}>{hour}</span>
+            <span key={hour}>{clockLabel12(hour)}</span>
           ))}
         </div>
       </div>
@@ -175,7 +176,7 @@ export function DailyRosterGrid({ date, windowStartTime, windowStartAt, timezone
                       left: `${segment.left}%`,
                       width: `${segment.width}%`
                     }}
-                    title={segment.marker.type === "RDO" ? "Roster day off" : "Leave"}
+                    title={markerTitle(segment.marker.type)}
                   >
                     <strong>{segment.marker.type}</strong>
                   </div>
@@ -273,6 +274,16 @@ function dayMarkerSizeClass(widthPercent: number) {
   }
 
   return "";
+}
+
+function markerTitle(type: DayMarker["type"]) {
+  if (type === "RDO") {
+    return "Roster day off";
+  }
+  if (type === "SICK") {
+    return "Sick leave";
+  }
+  return "Leave";
 }
 
 function isMinuteInsideDayMarker(

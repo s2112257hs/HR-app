@@ -6,7 +6,9 @@ import { AuthenticatedUser } from "../common/types/authenticated-user";
 import { rangesOverlap } from "../common/utils/overlap";
 import { buildRosterRange } from "../common/utils/roster-dates";
 import { PrismaService } from "../prisma/prisma.service";
+import { RosterLocksService } from "../roster-locks/roster-locks.service";
 import { CopyWeeklyCellDto } from "./dto/copy-weekly-cell.dto";
+import { ClearWeeklyCellsDto, RestoreWeeklyCellsDto } from "./dto/weekly-cells.dto";
 
 type RosterShift = Shift & {
   department: {
@@ -30,7 +32,8 @@ const MAX_WEEKLY_CELL_COPY_DAYS = 90;
 export class RosterService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly auditService: AuditService
+    private readonly auditService: AuditService,
+    private readonly rosterLocksService: RosterLocksService
   ) {}
 
   async daily(organisationId: string, date: string, startTime = "00:00") {
@@ -119,6 +122,7 @@ export class RosterService {
   }
 
   async copyWeeklyCell(currentUser: AuthenticatedUser, dto: CopyWeeklyCellDto) {
+    await this.rosterLocksService.assertWritable(currentUser);
     const organisation = await this.prisma.organisation.findUniqueOrThrow({
       where: { id: currentUser.organisationId },
       select: { timezone: true }
@@ -300,6 +304,113 @@ export class RosterService {
     };
   }
 
+  async clearWeeklyCellsForUser(currentUser: AuthenticatedUser, dto: ClearWeeklyCellsDto) {
+    await this.rosterLocksService.assertWritable(currentUser);
+    const organisation = await this.prisma.organisation.findUniqueOrThrow({
+      where: { id: currentUser.organisationId },
+      select: { timezone: true }
+    });
+    const cells = this.normaliseCells(dto.cells, organisation.timezone);
+    this.assertManagerCanEditTargetDates(currentUser, cells.map((cell) => cell.date), organisation.timezone);
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const results = [];
+      for (const cell of cells) {
+        await this.ensureActiveEmployee(currentUser.organisationId, cell.employeeId);
+        const cleared = await this.clearWeeklyCells(tx, currentUser.organisationId, cell.employeeId, [cell.date], organisation.timezone, currentUser.sub);
+        results.push({ ...cell, ...cleared });
+      }
+      return results;
+    });
+
+    await this.auditService.record({
+      organisationId: currentUser.organisationId,
+      userId: currentUser.sub,
+      action: "WEEKLY_CELLS_CLEARED",
+      entityType: "RosterCell",
+      entityId: currentUser.organisationId,
+      afterData: { cells: result } as Prisma.InputJsonValue
+    });
+
+    return {
+      clearedCount: result.length,
+      cells: result
+    };
+  }
+
+  async restoreWeeklyCells(currentUser: AuthenticatedUser, dto: RestoreWeeklyCellsDto) {
+    await this.rosterLocksService.assertWritable(currentUser);
+    const organisation = await this.prisma.organisation.findUniqueOrThrow({
+      where: { id: currentUser.organisationId },
+      select: { timezone: true }
+    });
+    const targetDates = dto.cells.map((cell) => this.parseDate(cell.date, organisation.timezone, "date").dateKey);
+    this.assertManagerCanEditTargetDates(currentUser, targetDates, organisation.timezone);
+
+    const restored = await this.prisma.$transaction(async (tx) => {
+      const results = [];
+      for (const cell of dto.cells) {
+        const date = this.parseDate(cell.date, organisation.timezone, "date").dateKey;
+        await this.ensureActiveEmployee(currentUser.organisationId, cell.employeeId);
+        await this.clearWeeklyCells(tx, currentUser.organisationId, cell.employeeId, [date], organisation.timezone, currentUser.sub);
+
+        const marker = cell.marker
+          ? await tx.dayMarker.create({
+              data: {
+                organisationId: currentUser.organisationId,
+                employeeId: cell.employeeId,
+                date: this.dateFromKey(date),
+                type: cell.marker.type,
+                notes: cell.marker.notes?.trim() || null,
+                createdByUserId: currentUser.sub,
+                updatedByUserId: currentUser.sub
+              },
+              select: { id: true }
+            })
+          : null;
+        const shiftIds: string[] = [];
+
+        if (!cell.marker) {
+          for (const shift of cell.shifts) {
+            await this.ensureActiveDepartment(currentUser.organisationId, shift.departmentId);
+            const created = await tx.shift.create({
+              data: {
+                organisationId: currentUser.organisationId,
+                employeeId: cell.employeeId,
+                departmentId: shift.departmentId,
+                startAt: new Date(shift.startAt),
+                endAt: new Date(shift.endAt),
+                unpaidBreakMinutes: shift.unpaidBreakMinutes,
+                notes: shift.notes?.trim() || null,
+                createdByUserId: currentUser.sub,
+                updatedByUserId: currentUser.sub
+              },
+              select: { id: true }
+            });
+            shiftIds.push(created.id);
+          }
+        }
+
+        results.push({ employeeId: cell.employeeId, date, markerId: marker?.id ?? null, shiftIds });
+      }
+      return results;
+    });
+
+    await this.auditService.record({
+      organisationId: currentUser.organisationId,
+      userId: currentUser.sub,
+      action: "WEEKLY_CELLS_RESTORED",
+      entityType: "RosterCell",
+      entityId: currentUser.organisationId,
+      afterData: { cells: restored } as Prisma.InputJsonValue
+    });
+
+    return {
+      restoredCount: restored.length,
+      cells: restored
+    };
+  }
+
   private async getRoster(organisationId: string, startDate: string, days: number, startTime = "00:00") {
     if (!startDate) {
       throw new BadRequestException({
@@ -476,6 +587,17 @@ export class RosterService {
     return Array.from({ length: dayCount }, (_item, index) => start.plus({ days: index }).toISODate() ?? targetStartDate);
   }
 
+  private normaliseCells(cells: Array<{ employeeId: string; date: string }>, timezone: string) {
+    const unique = new Map<string, { employeeId: string; date: string }>();
+
+    for (const cell of cells) {
+      const date = this.parseDate(cell.date, timezone, "date").dateKey;
+      unique.set(`${cell.employeeId}-${date}`, { employeeId: cell.employeeId, date });
+    }
+
+    return Array.from(unique.values());
+  }
+
   private assertManagerCanEditTargetDates(currentUser: AuthenticatedUser, targetDates: string[], timezone: string) {
     if (currentUser.role !== UserRole.ROSTER_MANAGER) {
       return;
@@ -505,6 +627,17 @@ export class RosterService {
 
     if (!employee) {
       throw this.validationError("employeeId", "Employee must be active and belong to the current organisation.");
+    }
+  }
+
+  private async ensureActiveDepartment(organisationId: string, departmentId: string) {
+    const department = await this.prisma.department.findFirst({
+      where: { id: departmentId, organisationId, isActive: true, deletedAt: null },
+      select: { id: true }
+    });
+
+    if (!department) {
+      throw this.validationError("departmentId", "Department must be active and belong to the current organisation.");
     }
   }
 
@@ -600,8 +733,7 @@ export class RosterService {
       employeeId,
       deletedAt: null,
       status: ShiftStatus.SCHEDULED,
-      startAt: { lt: range.rangeEnd },
-      endAt: { gt: range.rangeStart }
+      startAt: { gte: range.rangeStart, lt: range.rangeEnd }
     };
   }
 

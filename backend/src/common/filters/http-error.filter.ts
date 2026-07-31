@@ -8,6 +8,8 @@ type ErrorBody = {
   message: string;
   fields?: Record<string, string>;
   overlaps?: unknown[];
+  targetCells?: unknown[];
+  targetDates?: unknown[];
 };
 
 @Catch()
@@ -40,7 +42,9 @@ export class HttpErrorFilter implements ExceptionFilter {
         error: String(payload.error ?? this.defaultError(status)),
         message,
         fields: this.responseFields(payload.fields) ?? this.validationFields(payload.message),
-        overlaps: Array.isArray(payload.overlaps) ? payload.overlaps : undefined
+        overlaps: Array.isArray(payload.overlaps) ? payload.overlaps : undefined,
+        targetCells: Array.isArray(payload.targetCells) ? payload.targetCells : undefined,
+        targetDates: Array.isArray(payload.targetDates) ? payload.targetDates : undefined
       };
     }
 
@@ -57,10 +61,21 @@ export class HttpErrorFilter implements ExceptionFilter {
     }
 
     return message.reduce<Record<string, string>>((fields, item) => {
-      const [fieldName] = String(item).split(" ");
-      fields[fieldName] = String(item);
+      const text = String(item);
+      const fieldName = this.validationFieldName(text);
+      fields[fieldName] = text;
       return fields;
     }, {});
+  }
+
+  private validationFieldName(message: string): string {
+    const forbiddenProperty = message.match(/^property\s+(.+?)\s+should not exist$/i);
+    if (forbiddenProperty?.[1]) {
+      return forbiddenProperty[1];
+    }
+
+    const [fieldName] = message.split(" ");
+    return fieldName || "root";
   }
 
   private responseFields(fields: unknown): Record<string, string> | undefined {
@@ -69,9 +84,18 @@ export class HttpErrorFilter implements ExceptionFilter {
     }
 
     return Object.entries(fields).reduce<Record<string, string>>((result, [field, message]) => {
-      result[field] = String(message);
+      const text = String(message);
+      result[this.responseFieldName(field, text)] = text;
       return result;
     }, {});
+  }
+
+  private responseFieldName(field: string, message: string): string {
+    if (field === "property") {
+      return this.validationFieldName(message);
+    }
+
+    return field;
   }
 
   private prismaErrorBody(exception: unknown): ErrorBody | undefined {

@@ -4,10 +4,9 @@ import { DateTime } from "luxon";
 import { AuditService } from "../audit/audit.service";
 import { AuthenticatedUser } from "../common/types/authenticated-user";
 import { durationMinutes } from "../common/utils/overlap";
-import { buildRosterRange } from "../common/utils/roster-dates";
 import { PrismaService } from "../prisma/prisma.service";
+import { RosterLocksService } from "../roster-locks/roster-locks.service";
 import { CheckOverlapDto } from "./dto/check-overlap.dto";
-import { CopyDailyScheduleDto } from "./dto/copy-daily-schedule.dto";
 import { CreateShiftDto } from "./dto/create-shift.dto";
 import { UpdateShiftDto } from "./dto/update-shift.dto";
 
@@ -16,13 +15,12 @@ const SHIFT_INCLUDE = {
   department: true
 } satisfies Prisma.ShiftInclude;
 
-const MAX_COPY_DAYS = 90;
-
 @Injectable()
 export class ShiftsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly auditService: AuditService
+    private readonly auditService: AuditService,
+    private readonly rosterLocksService: RosterLocksService
   ) {}
 
   async get(organisationId: string, id: string) {
@@ -54,144 +52,8 @@ export class ShiftsService {
     };
   }
 
-  async copyDailySchedule(currentUser: AuthenticatedUser, dto: CopyDailyScheduleDto) {
-    const organisation = await this.prisma.organisation.findUniqueOrThrow({
-      where: { id: currentUser.organisationId },
-      select: { timezone: true }
-    });
-    const startTime = dto.startTime ?? "00:00";
-    const sourceRange = buildRosterRange(dto.sourceDate, organisation.timezone, 1, startTime);
-    const targetDates = this.targetDates(dto.targetStartDate, dto.targetEndDate, organisation.timezone);
-    const skippedDates = targetDates.filter((targetDate) => targetDate === dto.sourceDate);
-    const copyDates = targetDates.filter((targetDate) => targetDate !== dto.sourceDate);
-    this.assertManagerCanEditTargetDates(currentUser, copyDates, organisation.timezone);
-
-    const sourceShifts = await this.prisma.shift.findMany({
-      where: {
-        organisationId: currentUser.organisationId,
-        deletedAt: null,
-        status: ShiftStatus.SCHEDULED,
-        startAt: { lt: sourceRange.rangeEnd },
-        endAt: { gt: sourceRange.rangeStart }
-      },
-      include: SHIFT_INCLUDE,
-      orderBy: [{ employee: { displayOrder: "asc" } }, { startAt: "asc" }]
-    });
-
-    if (sourceShifts.length === 0) {
-      throw this.validationError("sourceDate", "There are no shifts to copy from this day.");
-    }
-
-    const inactiveShift = sourceShifts.find(
-      (shift) => !shift.employee.isActive || shift.employee.deletedAt !== null || !shift.department.isActive || shift.department.deletedAt !== null
-    );
-
-    if (inactiveShift) {
-      throw this.validationError("sourceDate", "This schedule includes an inactive employee or department and cannot be copied.");
-    }
-
-    const shiftsToCopy = copyDates.flatMap((targetDate) => {
-      const targetRange = buildRosterRange(targetDate, organisation.timezone, 1, startTime);
-      return sourceShifts.map((shift) => {
-        const offsetMs = shift.startAt.getTime() - sourceRange.rangeStart.getTime();
-        const durationMs = shift.endAt.getTime() - shift.startAt.getTime();
-        const startAt = new Date(targetRange.rangeStart.getTime() + offsetMs);
-        const endAt = new Date(startAt.getTime() + durationMs);
-
-        return {
-          targetDate,
-          sourceShiftId: shift.id,
-          employeeId: shift.employeeId,
-          departmentId: shift.departmentId,
-          startAt,
-          endAt,
-          unpaidBreakMinutes: shift.unpaidBreakMinutes,
-          notes: shift.notes
-        };
-      });
-    });
-    const dayMarkerConflicts = await this.findDayMarkerConflictsForShifts(currentUser.organisationId, shiftsToCopy, organisation.timezone);
-
-    if (dayMarkerConflicts.length > 0) {
-      throw this.dayMarkerConflict(dayMarkerConflicts, "targetStartDate", "Some copied shifts would land on RDO or leave days.");
-    }
-
-    const overlaps = (
-      await Promise.all(
-        shiftsToCopy.map(async (shift) => {
-          const found = await this.findOverlaps(currentUser.organisationId, shift.employeeId, shift.startAt, shift.endAt);
-          return found.map((overlap) => ({
-            shiftId: overlap.id,
-            departmentName: overlap.department.name,
-            departmentShortCode: overlap.department.shortCode,
-            startAt: overlap.startAt,
-            endAt: overlap.endAt
-          }));
-        })
-      )
-    ).flat();
-
-    if (overlaps.length > 0 && !dto.overlapAcknowledged) {
-      throw new ConflictException({
-        error: "SHIFT_COPY_OVERLAP",
-        message: "Some copied shifts overlap with existing assignments.",
-        overlaps
-      });
-    }
-
-    const createdShiftIds = await this.prisma.$transaction(async (tx) => {
-      const ids: string[] = [];
-
-      for (const shift of shiftsToCopy) {
-        const created = await tx.shift.create({
-          data: {
-            organisationId: currentUser.organisationId,
-            employeeId: shift.employeeId,
-            departmentId: shift.departmentId,
-            startAt: shift.startAt,
-            endAt: shift.endAt,
-            unpaidBreakMinutes: shift.unpaidBreakMinutes,
-            notes: shift.notes,
-            createdByUserId: currentUser.sub,
-            updatedByUserId: currentUser.sub
-          },
-          select: { id: true }
-        });
-        ids.push(created.id);
-      }
-
-      return ids;
-    });
-
-    await this.auditService.record({
-      organisationId: currentUser.organisationId,
-      userId: currentUser.sub,
-      action: "DAILY_SCHEDULE_COPIED",
-      entityType: "Shift",
-      entityId: currentUser.organisationId,
-      afterData: {
-        sourceDate: dto.sourceDate,
-        targetStartDate: dto.targetStartDate,
-        targetEndDate: dto.targetEndDate,
-        startTime,
-        copiedCount: createdShiftIds.length,
-        skippedDates,
-        createdShiftIds
-      }
-    });
-
-    return {
-      sourceDate: dto.sourceDate,
-      targetStartDate: dto.targetStartDate,
-      targetEndDate: dto.targetEndDate,
-      startTime,
-      copiedCount: createdShiftIds.length,
-      skippedDates,
-      createdShiftIds
-    };
-  }
-
   async create(currentUser: AuthenticatedUser, dto: CreateShiftDto) {
+    await this.rosterLocksService.assertWritable(currentUser);
     const range = this.validateRange(dto.startAt, dto.endAt, dto.unpaidBreakMinutes ?? 0);
     await this.assertManagerCanEditShiftStart(currentUser, range.startAt, "startAt");
     await this.ensureActiveEmployeeAndDepartment(currentUser.organisationId, dto.employeeId, dto.departmentId);
@@ -233,6 +95,7 @@ export class ShiftsService {
   }
 
   async update(currentUser: AuthenticatedUser, id: string, dto: UpdateShiftDto) {
+    await this.rosterLocksService.assertWritable(currentUser);
     const before = await this.prisma.shift.findFirst({
       where: { id, organisationId: currentUser.organisationId },
       include: SHIFT_INCLUDE
@@ -297,6 +160,7 @@ export class ShiftsService {
   }
 
   async cancel(currentUser: AuthenticatedUser, id: string) {
+    await this.rosterLocksService.assertWritable(currentUser);
     const before = await this.prisma.shift.findFirst({
       where: { id, organisationId: currentUser.organisationId },
       include: SHIFT_INCLUDE
@@ -329,28 +193,6 @@ export class ShiftsService {
     });
 
     return updated;
-  }
-
-  private targetDates(targetStartDate: string, targetEndDate: string, timezone: string) {
-    const start = DateTime.fromISO(targetStartDate, { zone: timezone }).startOf("day");
-    const end = DateTime.fromISO(targetEndDate, { zone: timezone }).startOf("day");
-
-    if (!start.isValid) {
-      throw this.validationError("targetStartDate", "Start date must be a valid ISO date.");
-    }
-    if (!end.isValid) {
-      throw this.validationError("targetEndDate", "End date must be a valid ISO date.");
-    }
-    if (end < start) {
-      throw this.validationError("targetEndDate", "End date must be the same as or later than start date.");
-    }
-
-    const dayCount = Math.floor(end.diff(start, "days").days) + 1;
-    if (dayCount > MAX_COPY_DAYS) {
-      throw this.validationError("targetEndDate", `Copy range cannot be longer than ${MAX_COPY_DAYS} days.`);
-    }
-
-    return Array.from({ length: dayCount }, (_item, index) => start.plus({ days: index }).toISODate() ?? targetStartDate);
   }
 
   private async assertManagerCanEditShiftStart(currentUser: AuthenticatedUser, startAt: Date, field: string) {
@@ -435,7 +277,7 @@ export class ShiftsService {
     const conflicts = await this.findDayMarkerConflictsForShifts(organisationId, [{ employeeId, startAt, endAt }], organisation.timezone);
 
     if (conflicts.length > 0) {
-      throw this.dayMarkerConflict(conflicts, field, "This employee has an RDO or leave marker for that day.");
+      throw this.dayMarkerConflict(conflicts, field, "This employee has an RDO, leave or sick marker for that day.");
     }
   }
 

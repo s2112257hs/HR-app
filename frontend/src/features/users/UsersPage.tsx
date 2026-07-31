@@ -8,9 +8,16 @@ import { ApiError } from "../../api/client";
 import { createUser, deactivateUser, fetchUsers, restoreUser, updateUser, UserPayload } from "../../api/users";
 import { User, UserRole } from "../../types/api";
 import { friendlyApiFieldErrors, friendlyApiMessage } from "../../utilities/formErrors";
+import { useAuth } from "../authentication/AuthProvider";
 
 const userSchema = z.object({
   name: z.string().trim().min(1, "Name is required.").max(150, "Name must be 150 characters or fewer."),
+  username: z
+    .string()
+    .trim()
+    .max(80, "Username must be 80 characters or fewer.")
+    .regex(/^[a-zA-Z0-9._-]*$/, "Username can only contain letters, numbers, dots, underscores and hyphens.")
+    .optional(),
   email: z.string().trim().min(1, "Email is required.").email("Enter a valid email address.").max(255, "Email must be 255 characters or fewer."),
   password: z
     .string()
@@ -22,6 +29,7 @@ type UserForm = z.infer<typeof userSchema>;
 
 const blankForm: UserForm = {
   name: "",
+  username: "",
   email: "",
   password: "",
   role: "VIEWER"
@@ -29,6 +37,7 @@ const blankForm: UserForm = {
 
 export function UsersPage() {
   const queryClient = useQueryClient();
+  const { user: currentUser } = useAuth();
   const [editing, setEditing] = useState<User | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const usersQuery = useQuery({
@@ -41,7 +50,7 @@ export function UsersPage() {
   });
 
   useEffect(() => {
-    form.reset(editing ? { name: editing.name, email: editing.email, password: "", role: editing.role } : blankForm);
+    form.reset(editing ? { name: editing.name, username: editing.username ?? "", email: editing.email, password: "", role: editing.role } : blankForm);
     setShowPassword(false);
   }, [editing, form]);
 
@@ -51,6 +60,7 @@ export function UsersPage() {
         throw new Error("CREATE_PASSWORD_TOO_SHORT");
       }
 
+      const username = values.username?.trim().toLowerCase() || "";
       const payload: UserPayload = {
         name: values.name.trim(),
         email: values.email.trim(),
@@ -58,8 +68,13 @@ export function UsersPage() {
         ...(values.password ? { password: values.password } : {})
       };
       if (!editing) {
+        payload.organisationId = currentUser?.organisationId;
+        if (username) {
+          payload.username = username;
+        }
         return createUser({ ...payload, password: values.password });
       }
+      payload.username = username || null;
       return updateUser(editing.id, payload);
     },
     onSuccess: async () => {
@@ -123,6 +138,11 @@ export function UsersPage() {
             {form.formState.errors.email && <span className="field-error">{form.formState.errors.email.message}</span>}
           </label>
           <label>
+            Username
+            <input autoComplete="username" {...form.register("username")} />
+            {form.formState.errors.username && <span className="field-error">{form.formState.errors.username.message}</span>}
+          </label>
+          <label>
             Password
             <span className="password-input-row">
               <input type={showPassword ? "text" : "password"} autoComplete="new-password" {...form.register("password")} />
@@ -160,6 +180,7 @@ export function UsersPage() {
           <thead>
             <tr>
               <th>Name</th>
+              <th>Username</th>
               <th>Email</th>
               <th>Role</th>
               <th>Status</th>
@@ -170,6 +191,7 @@ export function UsersPage() {
             {(usersQuery.data ?? []).map((user) => (
               <tr key={user.id}>
                 <td>{user.name}</td>
+                <td>{user.username}</td>
                 <td>{user.email}</td>
                 <td>{user.role.replace("_", " ")}</td>
                 <td>{user.isActive ? "Active" : "Inactive"}</td>

@@ -2,6 +2,7 @@ import { ApiError } from "../api/client";
 
 const FIELD_LABELS: Record<string, string> = {
   name: "Name",
+  username: "Username",
   email: "Email",
   password: "Password",
   role: "Role",
@@ -32,7 +33,11 @@ export function friendlyApiMessage(error: unknown, fallback: string) {
   }
 
   if (error.body.statusCode === 401) {
-    return "The email or password is incorrect.";
+    return "The username, email or password is incorrect.";
+  }
+
+  if (error.body.error === "ROSTER_LOCKED") {
+    return "Another user is editing this organisation's roster.";
   }
 
   if (error.body.statusCode === 403) {
@@ -43,11 +48,15 @@ export function friendlyApiMessage(error: unknown, fallback: string) {
   }
 
   if (error.body.error === "DAY_MARKER_CONFLICT") {
-    return Object.values(error.body.fields ?? {})[0] ?? "This employee has an RDO or leave marker for that day.";
+    return Object.values(error.body.fields ?? {})[0] ?? "This employee has an RDO, leave or sick marker for that day.";
   }
 
   if (error.body.fields && Object.keys(error.body.fields).length > 0) {
-    return "Please fix the highlighted fields.";
+    const messages = Object.entries(error.body.fields).map(([field, message]) => {
+      const normalisedField = normaliseErrorField(field, message);
+      return friendlyFieldMessage(normalisedField, message);
+    });
+    return messages.length === 1 ? messages[0] : messages.join(" ");
   }
 
   if (error.body.error === "UNIQUE_CONSTRAINT") {
@@ -67,9 +76,19 @@ export function friendlyApiFieldErrors(error: unknown) {
   }
 
   return Object.entries(error.body.fields).reduce<Record<string, string>>((fields, [field, message]) => {
-    fields[field] = friendlyFieldMessage(field, message);
+    const normalisedField = normaliseErrorField(field, message);
+    fields[normalisedField] = friendlyFieldMessage(normalisedField, message);
     return fields;
   }, {});
+}
+
+function normaliseErrorField(field: string, message: string) {
+  if (field !== "property") {
+    return field;
+  }
+
+  const forbiddenProperty = message.match(/^property\s+(.+?)\s+should not exist$/i);
+  return forbiddenProperty?.[1] ?? field;
 }
 
 export function friendlyFieldMessage(field: string, message: string) {
@@ -79,6 +98,10 @@ export function friendlyFieldMessage(field: string, message: string) {
 
   if (lower.includes("already") || lower.includes("unique")) {
     return `${label} is already in use.`;
+  }
+
+  if (lower.includes("should not exist")) {
+    return `${label} is not accepted for this request.`;
   }
 
   if (field === "password" || lower.includes("password")) {
@@ -129,8 +152,8 @@ function friendlySentence(message: string) {
     return "You do not have permission to do that.";
   }
 
-  if (trimmed.toLowerCase().includes("invalid email or password")) {
-    return "The email or password is incorrect.";
+  if (trimmed.toLowerCase().includes("invalid email") || trimmed.toLowerCase().includes("invalid email, username")) {
+    return "The username, email or password is incorrect.";
   }
 
   return trimmed.endsWith(".") ? trimmed : `${trimmed}.`;

@@ -21,6 +21,7 @@ enum ShiftStatus {
 enum DayMarkerType {
   RDO
   LEAVE
+  SICK
 }
 
 model Organisation {
@@ -34,6 +35,7 @@ model Organisation {
   shifts      Shift[]
   dayMarkers  DayMarker[]
   validationRules ValidationRule[]
+  rosterLock  RosterLock?
   auditLogs   AuditLog[]
   createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -46,6 +48,7 @@ model User {
   organisationId String       @map("organisation_id") @db.Uuid
   organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   name           String       @db.VarChar(150)
+  username       String?      @db.VarChar(80)
   email          String       @db.VarChar(255)
   passwordHash   String       @map("password_hash") @db.VarChar(255)
   role           UserRole
@@ -56,10 +59,12 @@ model User {
   createdDayMarkers DayMarker[] @relation("CreatedDayMarkers")
   updatedDayMarkers DayMarker[] @relation("UpdatedDayMarkers")
   auditLogs      AuditLog[]
+  rosterLocks    RosterLock[] @relation("RosterLockUser")
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([organisationId, email])
+  @@unique([organisationId, username])
   @@map("users")
 }
 
@@ -78,6 +83,7 @@ model Employee {
   endDate        DateTime?    @map("end_date") @db.Date
   primaryDepartmentId String?      @map("primary_department_id") @db.Uuid
   primaryDepartment   Department?  @relation("EmployeePrimaryDepartment", fields: [primaryDepartmentId], references: [id], onDelete: SetNull)
+  rdoBalanceBroughtForward Int     @default(0) @map("rdo_balance_brought_forward")
   displayOrder   Int          @map("display_order")
   isActive       Boolean      @default(true) @map("is_active")
   deletedAt      DateTime?    @map("deleted_at") @db.Timestamptz(6)
@@ -200,4 +206,19 @@ model AuditLog {
   @@index([organisationId, entityType, entityId])
   @@index([organisationId, createdAt])
   @@map("audit_logs")
+}
+
+model RosterLock {
+  id              String       @id @default(uuid()) @db.Uuid
+  organisationId  String       @unique @map("organisation_id") @db.Uuid
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  lockedByUserId  String       @map("locked_by_user_id") @db.Uuid
+  lockedBy        User         @relation("RosterLockUser", fields: [lockedByUserId], references: [id])
+  token           String       @db.VarChar(100)
+  expiresAt       DateTime     @map("expires_at") @db.Timestamptz(6)
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([expiresAt])
+  @@map("roster_locks")
 }

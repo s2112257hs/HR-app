@@ -45,6 +45,7 @@ export function RdoTrackerPage() {
                 <th>Tracked from</th>
                 <th>RDO required</th>
                 <th>RDO taken</th>
+                <th>Balance b/d</th>
                 <th>RDO owed</th>
               </tr>
             </thead>
@@ -59,6 +60,7 @@ export function RdoTrackerPage() {
                   <td>{employee.trackingStartDate}</td>
                   <td>{employee.requiredRdo}</td>
                   <td>{employee.rdoTaken}</td>
+                  <td>{employee.rdoBalanceBroughtForward}</td>
                   <td>
                     <span className={`rdo-owed-pill ${employee.rdoOwed > 0 ? "owing" : ""} ${employee.rdoOwed < 0 ? "ahead" : ""}`}>{employee.rdoOwed}</span>
                   </td>

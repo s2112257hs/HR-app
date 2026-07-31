@@ -2,19 +2,17 @@ import { AlertTriangle } from "lucide-react";
 import type { CSSProperties } from "react";
 import { Shift } from "../../../types/api";
 import { getContrastText } from "../../../utilities/colour";
-import { isNextDay, timeLabel } from "../utilities/dates";
+import { weeklyShiftTimeText } from "../utilities/dates";
 
 type Props = {
   shift: Shift;
-  date?: string;
   onClick: () => void;
 };
 
-export function WeeklyShiftLine({ shift, date, onClick }: Props) {
+export function WeeklyShiftLine({ shift, onClick }: Props) {
   const background = shift.department.colourHex;
   const color = getContrastText(background);
-  const segment = date ? shift.rosterSegments?.find((segment) => segment.date === date) : undefined;
-  const timeText = segment ? `${segment.startTime}-${segment.endTime}` : `${timeLabel(shift.startAt)}-${timeLabel(shift.endAt)}${isNextDay(shift.startAt, shift.endAt) ? " +1" : ""}`;
+  const timeText = weeklyShiftTimeText(shift);
 
   return (
     <button

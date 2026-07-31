@@ -8,7 +8,7 @@ import { friendlyApiMessage } from "../../utilities/formErrors";
 import { useAuth } from "./AuthProvider";
 
 const loginSchema = z.object({
-  email: z.string().trim().min(1, "Email is required.").email("Enter a valid email address."),
+  login: z.string().trim().min(1, "Username or email is required."),
   password: z.string().min(1, "Password is required.").min(8, "Password must be at least 8 characters.")
 });
 
@@ -27,14 +27,14 @@ export function LoginPage() {
   } = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
-      email: "admin@example.com",
+      login: "admin@example.com",
       password: "admin123"
     }
   });
 
   const onSubmit = handleSubmit(async (values) => {
     try {
-      await login(values.email, values.password);
+      await login(values.login, values.password);
       const from = (location.state as { from?: string } | null)?.from ?? "/roster/weekly";
       void navigate(from, { replace: true });
     } catch (error) {
@@ -54,9 +54,9 @@ export function LoginPage() {
           <h1>HR Roster</h1>
         </div>
         <label>
-          Email
-          <input type="email" autoComplete="email" {...register("email")} />
-          {errors.email && <span className="field-error">{errors.email.message}</span>}
+          Username or email
+          <input autoComplete="username" {...register("login")} />
+          {errors.login && <span className="field-error">{errors.login.message}</span>}
         </label>
         <label>
           Password

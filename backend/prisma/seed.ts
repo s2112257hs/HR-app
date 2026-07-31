@@ -5,6 +5,7 @@ const prisma = new PrismaClient();
 const organisationName = process.env.SEED_ORGANISATION_NAME ?? "Demo Resort";
 const organisationTimezone = process.env.SEED_TIMEZONE ?? "Indian/Maldives";
 const adminEmail = process.env.SEED_ADMIN_EMAIL ?? "admin@example.com";
+const adminUsername = process.env.SEED_ADMIN_USERNAME ?? "admin";
 const adminPassword = process.env.SEED_ADMIN_PASSWORD ?? "admin123";
 
 async function main() {
@@ -31,12 +32,14 @@ async function main() {
     create: {
       organisationId: organisation.id,
       name: "Admin User",
+      username: adminUsername.trim().toLowerCase(),
       email: adminEmail,
       passwordHash: await bcrypt.hash(adminPassword, 12),
       role: UserRole.ADMIN
     },
     update: {
       name: "Admin User",
+      username: adminUsername.trim().toLowerCase(),
       role: UserRole.ADMIN,
       isActive: true
     }

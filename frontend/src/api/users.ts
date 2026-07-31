@@ -2,7 +2,9 @@ import { apiRequest, jsonBody } from "./client";
 import { User, UserRole } from "../types/api";
 
 export type UserPayload = {
+  organisationId?: string;
   name: string;
+  username?: string | null;
   email: string;
   password?: string;
   role: UserRole;
@@ -12,7 +14,7 @@ export function fetchUsers() {
   return apiRequest<User[]>("/users");
 }
 
-export function createUser(payload: Required<UserPayload>) {
+export function createUser(payload: UserPayload & { password: string }) {
   return apiRequest<User>("/users", {
     method: "POST",
     ...jsonBody(payload)
@@ -33,4 +35,3 @@ export function deactivateUser(id: string) {
 export function restoreUser(id: string) {
   return apiRequest<User>(`/users/${id}/restore`, { method: "PATCH" });
 }
-
