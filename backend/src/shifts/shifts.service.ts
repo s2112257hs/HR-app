@@ -72,6 +72,7 @@ export class ShiftsService {
         startAt: range.startAt,
         endAt: range.endAt,
         unpaidBreakMinutes: dto.unpaidBreakMinutes ?? 0,
+        overtimeMinutes: dto.overtimeMinutes ?? 0,
         notes: dto.notes?.trim() || null,
         createdByUserId: currentUser.sub,
         updatedByUserId: currentUser.sub
@@ -117,6 +118,7 @@ export class ShiftsService {
     const startAt = dto.startAt ?? before.startAt.toISOString();
     const endAt = dto.endAt ?? before.endAt.toISOString();
     const unpaidBreakMinutes = dto.unpaidBreakMinutes ?? before.unpaidBreakMinutes;
+    const overtimeMinutes = dto.overtimeMinutes ?? before.overtimeMinutes;
     const range = this.validateRange(startAt, endAt, unpaidBreakMinutes);
     await this.assertManagerCanEditShiftStart(currentUser, before.startAt, "startAt");
     await this.assertManagerCanEditShiftStart(currentUser, range.startAt, "startAt");
@@ -136,6 +138,7 @@ export class ShiftsService {
         startAt: range.startAt,
         endAt: range.endAt,
         unpaidBreakMinutes,
+        overtimeMinutes,
         notes: dto.notes === undefined ? before.notes : dto.notes?.trim() || null,
         updatedByUserId: currentUser.sub,
         version: { increment: 1 }

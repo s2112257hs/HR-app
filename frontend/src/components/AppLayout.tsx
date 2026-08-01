@@ -1,4 +1,4 @@
-import { Building2, CalendarCheck, CalendarDays, CalendarRange, LogOut, Moon, PanelLeftClose, PanelLeftOpen, Settings, Sun, UserCog, Users } from "lucide-react";
+import { Building2, Calculator, CalendarCheck, CalendarDays, CalendarRange, LogOut, Moon, PanelLeftClose, PanelLeftOpen, Settings, Sun, UserCog, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../features/authentication/AuthProvider";
@@ -6,6 +6,7 @@ import { useAuth } from "../features/authentication/AuthProvider";
 const navItems = [
   { to: "/roster/daily", label: "Daily", icon: CalendarDays },
   { to: "/roster/weekly", label: "Weekly", icon: CalendarRange },
+  { to: "/roster/ot-tracker", label: "OT Tracker", icon: Calculator },
   { to: "/roster/rdo-tracker", label: "RDO Tracker", icon: CalendarCheck },
   { to: "/back-office/employees", label: "Employees", icon: Users, managerAllowed: true },
   { to: "/back-office/departments", label: "Departments", icon: Building2, managerAllowed: true },

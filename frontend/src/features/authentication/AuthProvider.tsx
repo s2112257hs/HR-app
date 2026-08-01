@@ -1,5 +1,5 @@
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
-import { AUTH_EXPIRED_EVENT, apiRequest, setAccessToken, setRefreshToken } from "../../api/client";
+import { AUTH_EXPIRED_EVENT, apiRequest, clearAuthActivity, recordAuthActivity, setAccessToken, setRefreshToken } from "../../api/client";
 import { User } from "../../types/api";
 
 type AuthResponse = {
@@ -28,6 +28,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const expireSession = () => {
       setAccessToken(null);
       setRefreshToken(null);
+      clearAuthActivity();
       localStorage.removeItem(AUTH_USER_KEY);
       setUser(null);
     };
@@ -41,8 +42,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    recordAuthActivity();
     let timeoutId = window.setTimeout(expireForInactivity, INACTIVITY_LIMIT_MS);
     const resetTimer = () => {
+      recordAuthActivity();
       window.clearTimeout(timeoutId);
       timeoutId = window.setTimeout(expireForInactivity, INACTIVITY_LIMIT_MS);
     };
@@ -51,6 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     function expireForInactivity() {
       setAccessToken(null);
       setRefreshToken(null);
+      clearAuthActivity();
       localStorage.removeItem(AUTH_USER_KEY);
       setUser(null);
     }
@@ -72,12 +76,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
         setAccessToken(response.accessToken);
         setRefreshToken(response.refreshToken);
+        recordAuthActivity();
         localStorage.setItem(AUTH_USER_KEY, JSON.stringify(response.user));
         setUser(response.user);
       },
       logout: () => {
         setAccessToken(null);
         setRefreshToken(null);
+        clearAuthActivity();
         localStorage.removeItem(AUTH_USER_KEY);
         setUser(null);
       }

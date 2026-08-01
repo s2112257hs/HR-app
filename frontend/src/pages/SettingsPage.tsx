@@ -27,6 +27,15 @@ const EMPTY_RULE_FORM: ValidationRulePayload = {
   endTime: "23:59",
   minimumStaff: 1
 };
+const WEEK_START_OPTIONS = [
+  { value: 1, label: "Monday" },
+  { value: 2, label: "Tuesday" },
+  { value: 3, label: "Wednesday" },
+  { value: 4, label: "Thursday" },
+  { value: 5, label: "Friday" },
+  { value: 6, label: "Saturday" },
+  { value: 7, label: "Sunday" }
+];
 
 type OrderModal = "departments" | "employees" | null;
 type OrderDepartment = Pick<Department, "id" | "name" | "shortCode" | "colourHex">;
@@ -60,6 +69,7 @@ export function SettingsPage() {
     queryFn: fetchValidationRules
   });
   const [rdoTrackingStartDate, setRdoTrackingStartDate] = useState("");
+  const [weekStartDay, setWeekStartDay] = useState(1);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [ruleForm, setRuleForm] = useState<ValidationRulePayload>(EMPTY_RULE_FORM);
@@ -88,6 +98,7 @@ export function SettingsPage() {
   useEffect(() => {
     if (settingsQuery.data) {
       setRdoTrackingStartDate(settingsQuery.data.rdoTrackingStartDate);
+      setWeekStartDay(settingsQuery.data.weekStartDay);
     }
   }, [settingsQuery.data]);
 
@@ -115,8 +126,10 @@ export function SettingsPage() {
       setSettingsMessage("Settings saved.");
       setSettingsError(null);
       setRdoTrackingStartDate(settings.rdoTrackingStartDate);
+      setWeekStartDay(settings.weekStartDay);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["settings"] }),
+        queryClient.invalidateQueries({ queryKey: ["roster"] }),
         queryClient.invalidateQueries({ queryKey: ["rdo-tracker"] })
       ]);
     },
@@ -319,7 +332,7 @@ export function SettingsPage() {
             event.preventDefault();
             setSettingsMessage(null);
             setSettingsError(null);
-            saveSettingsMutation.mutate({ rdoTrackingStartDate });
+            saveSettingsMutation.mutate({ rdoTrackingStartDate, weekStartDay });
           }}
         >
           <div className="combined-roster-settings-grid">
@@ -331,6 +344,23 @@ export function SettingsPage() {
                 <SquarePen size={16} aria-hidden="true" />
                 Edit RDO balances
               </button>
+              {settingsQuery.data && (
+                <>
+                  <label className="settings-date-field settings-subsection-gap">
+                    <span className="label-title">
+                      Week start day <span className="required-mark">*</span>
+                    </span>
+                    <select value={weekStartDay} onChange={(event) => setWeekStartDay(Number(event.target.value))}>
+                      {WEEK_START_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="dialog-note">Weekly roster pages move in full weeks from this day.</p>
+                </>
+              )}
               {rdoBalanceMessage && <div className="form-success">{rdoBalanceMessage}</div>}
               {rdoBalanceError && <div className="form-error">{rdoBalanceError}</div>}
             </div>
@@ -347,7 +377,9 @@ export function SettingsPage() {
               {settingsQuery.data && (
                 <>
                   <label className="settings-date-field">
-                    RDO tracking start date <span className="required-mark">*</span>
+                    <span className="label-title">
+                      RDO tracking start date <span className="required-mark">*</span>
+                    </span>
                     <input type="date" value={rdoTrackingStartDate} onChange={(event) => setRdoTrackingStartDate(event.target.value)} />
                   </label>
                   <p className="dialog-note">RDO owed is counted from this date, or from an employee's start date.</p>
@@ -566,11 +598,15 @@ export function SettingsPage() {
           >
             <div className="form-grid validation-rule-grid">
               <label>
-                Rule name <span className="required-mark">*</span>
+                <span className="label-title">
+                  Rule name <span className="required-mark">*</span>
+                </span>
                 <input value={ruleForm.name} onChange={(event) => setRuleForm({ ...ruleForm, name: event.target.value })} maxLength={120} />
               </label>
               <label>
-                Department <span className="required-mark">*</span>
+                <span className="label-title">
+                  Department <span className="required-mark">*</span>
+                </span>
                 <select value={ruleForm.departmentId} onChange={(event) => setRuleForm({ ...ruleForm, departmentId: event.target.value })}>
                   <option value="">Choose department</option>
                   {activeDepartments.map((department) => (
@@ -581,15 +617,21 @@ export function SettingsPage() {
                 </select>
               </label>
               <label>
-                Start time <span className="required-mark">*</span>
+                <span className="label-title">
+                  Start time <span className="required-mark">*</span>
+                </span>
                 <input type="time" value={ruleForm.startTime} onChange={(event) => setRuleForm({ ...ruleForm, startTime: event.target.value })} />
               </label>
               <label>
-                End time <span className="required-mark">*</span>
+                <span className="label-title">
+                  End time <span className="required-mark">*</span>
+                </span>
                 <input type="time" value={ruleForm.endTime} onChange={(event) => setRuleForm({ ...ruleForm, endTime: event.target.value })} />
               </label>
               <label>
-                Minimum staff <span className="required-mark">*</span>
+                <span className="label-title">
+                  Minimum staff <span className="required-mark">*</span>
+                </span>
                 <input
                   type="number"
                   min={1}

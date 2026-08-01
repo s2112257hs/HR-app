@@ -24,7 +24,9 @@ const FIELD_LABELS: Record<string, string> = {
   startTime: "Start time",
   endTime: "End time",
   minimumStaff: "Minimum staff",
-  unpaidBreakMinutes: "Break"
+  unpaidBreakMinutes: "Break",
+  overtimeMinutes: "OT",
+  overtimeHours: "OT"
 };
 
 export function friendlyApiMessage(error: unknown, fallback: string) {

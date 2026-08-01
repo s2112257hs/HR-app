@@ -349,6 +349,12 @@ label {
   font-weight: 850;
 }
 
+.label-title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+}
+
 .form-error,
 .form-success {
   display: flex;
@@ -919,6 +925,10 @@ th {
   font-size: 12px;
 }
 
+.tracker-employee-cell {
+  border-left: 4px solid var(--primary-department-colour, transparent);
+}
+
 .rdo-owed-pill {
   display: inline-flex;
   min-width: 28px;
@@ -938,6 +948,18 @@ th {
 .rdo-owed-pill.ahead {
   color: #3451a4;
   background: #eef3ff;
+}
+
+.compact-info-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.compact-info-panel span {
+  color: #657382;
 }
 
 .modal-backdrop {
@@ -1212,6 +1234,10 @@ th {
 
 .settings-date-field {
   width: 100%;
+}
+
+.settings-subsection-gap {
+  margin-top: 24px;
 }
 
 .settings-save-row {
@@ -1690,6 +1716,10 @@ th {
 :root[data-theme="dark"] .rdo-owed-pill.ahead {
   color: #c7d2fe;
   background: #1e2b52;
+}
+
+:root[data-theme="dark"] .compact-info-panel span {
+  color: #aab7c4;
 }
 
 :root[data-theme="dark"] .weekly-shift-line {

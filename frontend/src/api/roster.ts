@@ -1,12 +1,13 @@
 import { apiRequest, jsonBody } from "./client";
-import { DayMarkerType, OverlapCheckResponse, RosterLockResponse, RosterResponse, RosterValidationResponse, Shift } from "../types/api";
+import { DayMarkerType, OtSummaryResponse, OverlapCheckResponse, RosterLockResponse, RosterResponse, RosterValidationResponse, Shift } from "../types/api";
 
 export type ShiftPayload = {
   employeeId: string;
   departmentId: string;
   startAt: string;
   endAt: string;
-  unpaidBreakMinutes: number;
+  unpaidBreakMinutes?: number;
+  overtimeMinutes?: number;
   notes?: string | null;
   overlapAcknowledged?: boolean;
 };
@@ -44,6 +45,7 @@ export type WeeklyCellSnapshot = WeeklyCellKey & {
     startAt: string;
     endAt: string;
     unpaidBreakMinutes: number;
+    overtimeMinutes?: number;
     notes?: string | null;
   }>;
 };
@@ -59,6 +61,11 @@ export function fetchWeeklyRoster(startDate: string) {
 
 export function validateWeeklyRoster(startDate: string) {
   return apiRequest<RosterValidationResponse>(`/roster/weekly-validation?startDate=${encodeURIComponent(startDate)}`);
+}
+
+export function fetchOtSummary(fromDate: string, toDate: string) {
+  const params = new URLSearchParams({ fromDate, toDate });
+  return apiRequest<OtSummaryResponse>(`/roster/ot-summary?${params.toString()}`);
 }
 
 export function checkShiftOverlap(payload: {

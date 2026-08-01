@@ -20,6 +20,12 @@ export class CreateShiftDto {
   @Min(0)
   unpaidBreakMinutes?: number;
 
+  @ApiPropertyOptional({ default: 0 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  overtimeMinutes?: number;
+
   @IsOptional()
   @IsString()
   notes?: string;
@@ -29,4 +35,3 @@ export class CreateShiftDto {
   @IsBoolean()
   overlapAcknowledged?: boolean;
 }
-

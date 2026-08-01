@@ -29,6 +29,7 @@ model Organisation {
   name        String       @db.VarChar(150)
   timezone    String       @db.VarChar(100)
   rdoTrackingStartDate DateTime @default(dbgenerated("CURRENT_DATE")) @map("rdo_tracking_start_date") @db.Date
+  weekStartDay Int         @default(1) @map("week_start_day")
   users       User[]
   employees   Employee[]
   departments Department[]
@@ -131,6 +132,7 @@ model Shift {
   startAt            DateTime     @map("start_at") @db.Timestamptz(6)
   endAt              DateTime     @map("end_at") @db.Timestamptz(6)
   unpaidBreakMinutes Int          @default(0) @map("unpaid_break_minutes")
+  overtimeMinutes    Int          @default(0) @map("overtime_minutes")
   notes              String?
   status             ShiftStatus  @default(SCHEDULED)
   createdByUserId    String       @map("created_by_user_id") @db.Uuid

@@ -52,7 +52,8 @@ export class SettingsService {
         id: true,
         name: true,
         timezone: true,
-        rdoTrackingStartDate: true
+        rdoTrackingStartDate: true,
+        weekStartDay: true
       }
     });
 
@@ -66,18 +67,21 @@ export class SettingsService {
         id: true,
         name: true,
         timezone: true,
-        rdoTrackingStartDate: true
+        rdoTrackingStartDate: true,
+        weekStartDay: true
       }
     });
     const rdoTrackingStartDate = this.dateFromKey(dto.rdoTrackingStartDate, "rdoTrackingStartDate");
+    const weekStartDay = this.validateWeekStartDay(dto.weekStartDay);
     const updated = await this.prisma.organisation.update({
       where: { id: currentUser.organisationId },
-      data: { rdoTrackingStartDate },
+      data: { rdoTrackingStartDate, weekStartDay },
       select: {
         id: true,
         name: true,
         timezone: true,
-        rdoTrackingStartDate: true
+        rdoTrackingStartDate: true,
+        weekStartDay: true
       }
     });
 
@@ -309,12 +313,13 @@ export class SettingsService {
     return this.ruleToResponse(updated);
   }
 
-  private toResponse(organisation: { id: string; name: string; timezone: string; rdoTrackingStartDate: Date }) {
+  private toResponse(organisation: { id: string; name: string; timezone: string; rdoTrackingStartDate: Date; weekStartDay: number }) {
     return {
       id: organisation.id,
       name: organisation.name,
       timezone: organisation.timezone,
-      rdoTrackingStartDate: DateTime.fromJSDate(organisation.rdoTrackingStartDate, { zone: "utc" }).toISODate()
+      rdoTrackingStartDate: DateTime.fromJSDate(organisation.rdoTrackingStartDate, { zone: "utc" }).toISODate(),
+      weekStartDay: organisation.weekStartDay
     };
   }
 
@@ -483,6 +488,15 @@ export class SettingsService {
     }
 
     return parsed.toJSDate();
+  }
+
+  private validateWeekStartDay(day: number) {
+    const value = Number(day);
+    if (!Number.isInteger(value) || value < 1 || value > 7) {
+      throw this.validationError("weekStartDay", "Week start day must be between Monday and Sunday.");
+    }
+
+    return value;
   }
 
   private validationError(field: string, message: string) {

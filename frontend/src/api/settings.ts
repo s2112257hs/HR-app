@@ -6,13 +6,14 @@ export type OrganisationSettings = {
   name: string;
   timezone: string;
   rdoTrackingStartDate: string;
+  weekStartDay: number;
 };
 
 export function fetchSettings() {
   return apiRequest<OrganisationSettings>("/settings");
 }
 
-export function updateSettings(payload: { rdoTrackingStartDate: string }) {
+export function updateSettings(payload: { rdoTrackingStartDate: string; weekStartDay: number }) {
   return apiRequest<OrganisationSettings>("/settings", {
     method: "PATCH",
     ...jsonBody(payload)

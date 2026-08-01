@@ -19,7 +19,7 @@ const schema = z.object({
   date: z.string().min(10, "Choose a date."),
   startTime: z.string().regex(/^\d{2}:\d{2}$/, "Enter a valid start time."),
   endTime: z.string().regex(/^\d{2}:\d{2}$/, "Enter a valid end time."),
-  unpaidBreakMinutes: z.coerce.number().int("Break must be a whole number.").min(0, "Break cannot be negative.").default(0),
+  overtimeHours: z.coerce.number().min(0, "OT cannot be negative.").default(0),
   notes: z.string().optional()
 });
 
@@ -61,7 +61,7 @@ export function ShiftModal({ state, employees, departments, onClose, onBeforeMut
         date: dateKeyFromIso(state.shift.startAt),
         startTime: timeLabel(state.shift.startAt),
         endTime: timeLabel(state.shift.endAt),
-        unpaidBreakMinutes: state.shift.unpaidBreakMinutes,
+        overtimeHours: minutesToHoursValue(state.shift.overtimeMinutes ?? 0),
         notes: state.shift.notes ?? ""
       };
     }
@@ -74,7 +74,7 @@ export function ShiftModal({ state, employees, departments, onClose, onBeforeMut
       date: state.date,
       startTime: state.startTime ?? "08:00",
       endTime: state.endTime ?? "12:00",
-      unpaidBreakMinutes: 0,
+      overtimeHours: 0,
       notes: ""
     };
   }, [departments, employees, state]);
@@ -103,7 +103,7 @@ export function ShiftModal({ state, employees, departments, onClose, onBeforeMut
         departmentId: values.departmentId,
         startAt: toLocalDateTimeIso(values.date, values.startTime),
         endAt: toLocalDateTimeIso(values.date, values.endTime, overnight),
-        unpaidBreakMinutes: values.unpaidBreakMinutes,
+        overtimeMinutes: hoursToMinutes(values.overtimeHours),
         notes: values.notes?.trim() || null,
         overlapAcknowledged: values.overlapAcknowledged
       };
@@ -234,8 +234,8 @@ export function ShiftModal({ state, employees, departments, onClose, onBeforeMut
               <input type="time" step="900" {...register("endTime")} disabled={!canEdit} />
             </label>
             <label>
-              Break
-              <input type="number" min="0" step="5" {...register("unpaidBreakMinutes")} disabled={!canEdit} />
+              OT
+              <input type="number" min="0" step="0.25" {...register("overtimeHours")} disabled={!canEdit} />
             </label>
           </div>
           <label>
@@ -247,6 +247,7 @@ export function ShiftModal({ state, employees, departments, onClose, onBeforeMut
               {errors.root?.message ||
                 errors.startTime?.message ||
                 errors.endTime?.message ||
+                errors.overtimeHours?.message ||
                 errors.employeeId?.message ||
                 errors.departmentId?.message ||
                 "Check the highlighted fields."}
@@ -300,6 +301,17 @@ function toShiftFormField(field: string) {
   if (field === "endAt") {
     return "endTime";
   }
+  if (field === "overtimeMinutes") {
+    return "overtimeHours";
+  }
 
   return field as keyof ShiftForm;
+}
+
+function hoursToMinutes(value: number) {
+  return Math.round(Number(value || 0) * 60);
+}
+
+function minutesToHoursValue(minutes: number) {
+  return Number((minutes / 60).toFixed(2));
 }

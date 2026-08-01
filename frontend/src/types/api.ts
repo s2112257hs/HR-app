@@ -51,6 +51,7 @@ export type Shift = {
   startAt: string;
   endAt: string;
   unpaidBreakMinutes: number;
+  overtimeMinutes: number;
   notes?: string | null;
   status: "SCHEDULED" | "CANCELLED";
   version: number;
@@ -94,6 +95,7 @@ export type RosterResponse = {
   windowStartAt?: string;
   windowEndAt?: string;
   timezone: string;
+  weekStartDay?: number;
   dates: string[];
   employees: RosterEmployee[];
 };
@@ -182,6 +184,7 @@ export type RosterLockResponse = {
 export type RdoTrackerResponse = {
   asOfDate: string;
   timezone: string;
+  trackingStartDate: string;
   employees: Array<{
     employeeId: string;
     employeeNumber?: string | null;
@@ -192,5 +195,23 @@ export type RdoTrackerResponse = {
     requiredRdo: number;
     rdoTaken: number;
     rdoOwed: number;
+  }>;
+};
+
+export type OtSummaryResponse = {
+  fromDate: string;
+  toDate: string;
+  timezone: string;
+  totals: {
+    hoursWorkedMinutes: number;
+    overtimeMinutes: number;
+  };
+  employees: Array<{
+    employeeId: string;
+    employeeNumber?: string | null;
+    displayName: string;
+    primaryDepartment?: ShiftDepartment | null;
+    hoursWorkedMinutes: number;
+    overtimeMinutes: number;
   }>;
 };

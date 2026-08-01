@@ -41,15 +41,22 @@ export class RosterService {
   }
 
   async weekly(organisationId: string, startDate: string) {
-    return this.getRoster(organisationId, startDate, 7);
+    const organisation = await this.prisma.organisation.findUniqueOrThrow({
+      where: { id: organisationId },
+      select: { timezone: true, weekStartDay: true }
+    });
+    const weekStartDate = this.weekStartDate(startDate, organisation.timezone, organisation.weekStartDay);
+
+    return this.getRoster(organisationId, weekStartDate, 7);
   }
 
   async validateWeekly(organisationId: string, startDate: string) {
     const organisation = await this.prisma.organisation.findUniqueOrThrow({
       where: { id: organisationId },
-      select: { timezone: true }
+      select: { timezone: true, weekStartDay: true }
     });
-    const range = buildRosterRange(startDate, organisation.timezone, 7);
+    const weekStartDate = this.weekStartDate(startDate, organisation.timezone, organisation.weekStartDay);
+    const range = buildRosterRange(weekStartDate, organisation.timezone, 7);
     const rules = await this.prisma.validationRule.findMany({
       where: {
         organisationId,
@@ -113,7 +120,7 @@ export class RosterService {
 
     return {
       valid: violations.length === 0,
-      startDate,
+      startDate: weekStartDate,
       endDateExclusive: range.endDateExclusive,
       timezone: organisation.timezone,
       checkedRules: rules.length,
@@ -250,6 +257,7 @@ export class RosterService {
           startAt,
           endAt,
           unpaidBreakMinutes: shift.unpaidBreakMinutes,
+          overtimeMinutes: shift.overtimeMinutes,
           notes: shift.notes
         };
       });
@@ -268,6 +276,7 @@ export class RosterService {
             startAt: shift.startAt,
             endAt: shift.endAt,
             unpaidBreakMinutes: shift.unpaidBreakMinutes,
+            overtimeMinutes: shift.overtimeMinutes,
             notes: shift.notes,
             createdByUserId: currentUser.sub,
             updatedByUserId: currentUser.sub
@@ -381,6 +390,7 @@ export class RosterService {
                 startAt: new Date(shift.startAt),
                 endAt: new Date(shift.endAt),
                 unpaidBreakMinutes: shift.unpaidBreakMinutes,
+                overtimeMinutes: shift.overtimeMinutes ?? 0,
                 notes: shift.notes?.trim() || null,
                 createdByUserId: currentUser.sub,
                 updatedByUserId: currentUser.sub
@@ -411,6 +421,94 @@ export class RosterService {
     };
   }
 
+  async overtimeSummary(organisationId: string, fromDate: string, toDate: string) {
+    const organisation = await this.prisma.organisation.findUniqueOrThrow({
+      where: { id: organisationId },
+      select: { timezone: true }
+    });
+    const range = this.inclusiveDateRange(fromDate, toDate, organisation.timezone);
+    const shiftWhere = {
+      organisationId,
+      deletedAt: null,
+      status: ShiftStatus.SCHEDULED,
+      startAt: { lt: range.rangeEnd },
+      endAt: { gt: range.rangeStart }
+    };
+    const employees = await this.prisma.employee.findMany({
+      where: {
+        organisationId,
+        OR: [
+          { isActive: true, deletedAt: null },
+          {
+            shifts: {
+              some: shiftWhere
+            }
+          }
+        ]
+      },
+      include: {
+        primaryDepartment: {
+          select: {
+            id: true,
+            name: true,
+            shortCode: true,
+            colourHex: true,
+            displayOrder: true
+          }
+        },
+        shifts: {
+          where: shiftWhere,
+          include: {
+            department: {
+              select: {
+                id: true,
+                name: true,
+                shortCode: true,
+                colourHex: true
+              }
+            }
+          },
+          orderBy: { startAt: "asc" }
+        }
+      },
+      orderBy: [{ displayOrder: "asc" }, { firstName: "asc" }]
+    });
+    const rows = this.sortByPrimaryDepartment(employees).map((employee) => {
+      const hoursWorkedMinutes = employee.shifts.reduce(
+        (total, shift) => total + this.overlapMinutes(range.rangeStart, range.rangeEnd, shift.startAt, shift.endAt),
+        0
+      );
+      const overtimeMinutes = employee.shifts.reduce((total, shift) => total + shift.overtimeMinutes, 0);
+
+      return {
+        employeeId: employee.id,
+        employeeNumber: employee.employeeNumber,
+        displayName: employee.preferredName || [employee.firstName, employee.lastName].filter(Boolean).join(" "),
+        primaryDepartment: employee.primaryDepartment
+          ? {
+              id: employee.primaryDepartment.id,
+              name: employee.primaryDepartment.name,
+              shortCode: employee.primaryDepartment.shortCode,
+              colourHex: employee.primaryDepartment.colourHex
+            }
+          : null,
+        hoursWorkedMinutes,
+        overtimeMinutes
+      };
+    });
+
+    return {
+      fromDate: range.fromDate,
+      toDate: range.toDate,
+      timezone: organisation.timezone,
+      totals: {
+        hoursWorkedMinutes: rows.reduce((total, employee) => total + employee.hoursWorkedMinutes, 0),
+        overtimeMinutes: rows.reduce((total, employee) => total + employee.overtimeMinutes, 0)
+      },
+      employees: rows
+    };
+  }
+
   private async getRoster(organisationId: string, startDate: string, days: number, startTime = "00:00") {
     if (!startDate) {
       throw new BadRequestException({
@@ -422,7 +520,7 @@ export class RosterService {
 
     const organisation = await this.prisma.organisation.findUniqueOrThrow({
       where: { id: organisationId },
-      select: { timezone: true }
+      select: { timezone: true, weekStartDay: true }
     });
     const range = buildRosterRange(startDate, organisation.timezone, days, startTime);
     const markerDates = this.markerDatesForRange(range.rangeStart, range.rangeEnd, organisation.timezone);
@@ -501,6 +599,7 @@ export class RosterService {
       windowStartAt: range.rangeStart,
       windowEndAt: range.rangeEnd,
       timezone: organisation.timezone,
+      weekStartDay: organisation.weekStartDay,
       dates: range.dates,
       employees: sortedEmployees.map((employee) => ({
         id: employee.id,
@@ -563,6 +662,56 @@ export class RosterService {
       dateKey: parsed.toISODate() ?? date,
       date: this.dateFromKey(parsed.toISODate() ?? date)
     };
+  }
+
+  private weekStartDate(date: string, timezone: string, weekStartDay: number) {
+    if (!date) {
+      throw this.validationError("startDate", "Start date is required.");
+    }
+
+    const parsed = DateTime.fromISO(date, { zone: timezone }).startOf("day");
+    if (!parsed.isValid) {
+      throw this.validationError("startDate", "Start date must be a valid ISO date.");
+    }
+
+    const daysFromStart = (parsed.weekday - weekStartDay + 7) % 7;
+    return parsed.minus({ days: daysFromStart }).toISODate() ?? date;
+  }
+
+  private inclusiveDateRange(fromDate: string, toDate: string, timezone: string) {
+    if (!fromDate) {
+      throw this.validationError("fromDate", "From date is required.");
+    }
+    if (!toDate) {
+      throw this.validationError("toDate", "To date is required.");
+    }
+
+    const from = DateTime.fromISO(fromDate, { zone: timezone }).startOf("day");
+    const to = DateTime.fromISO(toDate, { zone: timezone }).startOf("day");
+
+    if (!from.isValid) {
+      throw this.validationError("fromDate", "From date must be a valid ISO date.");
+    }
+    if (!to.isValid) {
+      throw this.validationError("toDate", "To date must be a valid ISO date.");
+    }
+    if (to < from) {
+      throw this.validationError("toDate", "To date must be the same as or later than from date.");
+    }
+
+    return {
+      fromDate: from.toISODate() ?? fromDate,
+      toDate: to.toISODate() ?? toDate,
+      rangeStart: from.toUTC().toJSDate(),
+      rangeEnd: to.plus({ days: 1 }).toUTC().toJSDate()
+    };
+  }
+
+  private overlapMinutes(rangeStart: Date, rangeEnd: Date, shiftStart: Date, shiftEnd: Date) {
+    const start = Math.max(rangeStart.getTime(), shiftStart.getTime());
+    const end = Math.min(rangeEnd.getTime(), shiftEnd.getTime());
+
+    return Math.max(0, Math.round((end - start) / 60000));
   }
 
   private targetDates(targetStartDate: string, targetEndDate: string, timezone: string) {
@@ -837,6 +986,7 @@ export class RosterService {
       startAt: shift.startAt,
       endAt: shift.endAt,
       unpaidBreakMinutes: shift.unpaidBreakMinutes,
+      overtimeMinutes: shift.overtimeMinutes,
       notes: shift.notes,
       status: shift.status,
       version: shift.version,

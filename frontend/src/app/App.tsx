@@ -4,6 +4,7 @@ import { DepartmentsPage } from "../features/departments/DepartmentsPage";
 import { EmployeesPage } from "../features/employees/EmployeesPage";
 import { LoginPage } from "../features/authentication/LoginPage";
 import { DailyRosterPage } from "../features/roster/DailyRosterPage";
+import { OtCalculatorPage } from "../features/roster/OtCalculatorPage";
 import { RdoTrackerPage } from "../features/roster/RdoTrackerPage";
 import { WeeklyRosterPage } from "../features/roster/WeeklyRosterPage";
 import { UsersPage } from "../features/users/UsersPage";
@@ -20,6 +21,8 @@ export function App() {
           <Route index element={<Navigate to="/roster/weekly" replace />} />
           <Route path="/roster/daily" element={<DailyRosterPage />} />
           <Route path="/roster/weekly" element={<WeeklyRosterPage />} />
+          <Route path="/roster/ot-calculator" element={<Navigate to="/roster/ot-tracker" replace />} />
+          <Route path="/roster/ot-tracker" element={<OtCalculatorPage />} />
           <Route path="/roster/rdo-tracker" element={<RdoTrackerPage />} />
           <Route element={<RequireManagerOrAdmin />}>
             <Route path="/back-office/employees" element={<EmployeesPage />} />

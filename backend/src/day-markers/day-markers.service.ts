@@ -146,7 +146,7 @@ export class DayMarkersService {
   async rdoTracker(organisationId: string, asOfDate?: string) {
     const organisation = await this.prisma.organisation.findUniqueOrThrow({
       where: { id: organisationId },
-      select: { timezone: true, rdoTrackingStartDate: true }
+      select: { timezone: true, rdoTrackingStartDate: true, weekStartDay: true }
     });
     const asOf = asOfDate ? this.parseDate(asOfDate, organisation.timezone, "asOfDate").dateTime : DateTime.now().setZone(organisation.timezone);
     const asOfEnd = asOf.startOf("day");
@@ -177,9 +177,10 @@ export class DayMarkersService {
     return {
       asOfDate: asOfEnd.toISODate(),
       timezone: organisation.timezone,
+      trackingStartDate: DateTime.fromJSDate(organisation.rdoTrackingStartDate, { zone: "utc" }).toISODate(),
       employees: this.sortByPrimaryDepartment(employees).map((employee) => {
         const trackingStart = this.trackingStart(organisation.rdoTrackingStartDate, employee.startDate, asOfEnd);
-        const requiredRdo = this.requiredRdoCount(trackingStart, asOfEnd);
+        const requiredRdo = this.requiredRdoCount(trackingStart, asOfEnd, organisation.weekStartDay);
         const rdoTaken = employee.dayMarkers.filter((marker) => DateTime.fromJSDate(marker.date, { zone: "utc" }) >= trackingStart).length;
         const rdoBalanceBroughtForward = employee.rdoBalanceBroughtForward;
 
@@ -260,20 +261,29 @@ export class DayMarkersService {
     const start = employeeStart > organisationStart ? employeeStart : organisationStart;
 
     if (start > asOf) {
-      return asOf.plus({ days: 1 }).startOf("week");
+      return start;
     }
 
     return start;
   }
 
-  private requiredRdoCount(trackingStart: DateTime, asOf: DateTime) {
-    const asOfWeek = asOf.startOf("week");
-    const trackingWeek = trackingStart.startOf("week");
+  private requiredRdoCount(trackingStart: DateTime, asOf: DateTime, weekStartDay: number) {
+    if (trackingStart > asOf) {
+      return 0;
+    }
+
+    const asOfWeek = this.configuredWeekStart(asOf, weekStartDay);
+    const trackingWeek = this.configuredWeekStart(trackingStart, weekStartDay);
     if (trackingWeek > asOfWeek) {
       return 0;
     }
 
     return Math.floor(asOfWeek.diff(trackingWeek, "weeks").weeks) + 1;
+  }
+
+  private configuredWeekStart(date: DateTime, weekStartDay: number) {
+    const daysFromStart = (date.weekday - weekStartDay + 7) % 7;
+    return date.startOf("day").minus({ days: daysFromStart });
   }
 
   private sortByPrimaryDepartment<

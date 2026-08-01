@@ -14,11 +14,13 @@ async function main() {
     create: {
       id: "00000000-0000-4000-8000-000000000001",
       name: organisationName,
-      timezone: organisationTimezone
+      timezone: organisationTimezone,
+      weekStartDay: 1
     },
     update: {
       name: organisationName,
-      timezone: organisationTimezone
+      timezone: organisationTimezone,
+      weekStartDay: 1
     }
   });
 
@@ -118,6 +120,7 @@ async function main() {
         startAt: new Date("2026-08-20T08:00:00+05:00"),
         endAt: new Date("2026-08-20T12:00:00+05:00"),
         unpaidBreakMinutes: 0,
+        overtimeMinutes: 0,
         createdByUserId: admin.id,
         updatedByUserId: admin.id
       },
@@ -128,6 +131,7 @@ async function main() {
         startAt: new Date("2026-08-20T10:00:00+05:00"),
         endAt: new Date("2026-08-20T14:00:00+05:00"),
         unpaidBreakMinutes: 30,
+        overtimeMinutes: 0,
         createdByUserId: admin.id,
         updatedByUserId: admin.id
       }

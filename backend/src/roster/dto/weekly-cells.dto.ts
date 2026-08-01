@@ -34,6 +34,11 @@ class WeeklyCellShiftDto {
   unpaidBreakMinutes!: number;
 
   @IsOptional()
+  @IsInt()
+  @Min(0)
+  overtimeMinutes?: number;
+
+  @IsOptional()
   @IsString()
   notes?: string | null;
 }
