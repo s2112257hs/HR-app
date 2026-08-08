@@ -12,6 +12,19 @@ export type User = {
   isSuperAdmin?: boolean;
   isActive?: boolean;
   lastLoginAt?: string | null;
+  primaryOrganisation?: {
+    id: string;
+    code: string;
+    name: string;
+  };
+  activeOrganisationAccess?: {
+    organisation: {
+      id: string;
+      code: string;
+      name: string;
+    };
+    role: UserRole;
+  } | null;
 };
 
 export type OrganisationSummary = {

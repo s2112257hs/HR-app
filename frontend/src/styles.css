@@ -429,6 +429,22 @@ th {
   text-transform: uppercase;
 }
 
+.stacked-cell {
+  display: grid;
+  gap: 3px;
+  min-width: 190px;
+  white-space: normal;
+}
+
+.stacked-cell strong {
+  font-size: 13px;
+}
+
+.stacked-cell span {
+  color: #657382;
+  font-size: 12px;
+}
+
 .search-box {
   display: flex;
   align-items: center;

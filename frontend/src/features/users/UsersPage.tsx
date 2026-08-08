@@ -35,6 +35,10 @@ const blankForm: UserForm = {
   role: "VIEWER"
 };
 
+function propertyLabel(property?: { code: string; name: string } | null) {
+  return property ? `${property.name} (${property.code})` : "Current property";
+}
+
 export function UsersPage() {
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
@@ -173,7 +177,7 @@ export function UsersPage() {
             {form.formState.errors.password && <span className="field-error">{form.formState.errors.password.message}</span>}
           </label>
           <label>
-            Role
+            Role in this property
             <select {...form.register("role")}>
               <option value="ADMIN">ADMIN</option>
               <option value="ROSTER_MANAGER">ROSTER MANAGER</option>
@@ -197,7 +201,8 @@ export function UsersPage() {
               <th>Name</th>
               <th>Username</th>
               <th>Email</th>
-              <th>Role</th>
+              <th>Property access</th>
+              <th>Role here</th>
               <th>Status</th>
               <th>Actions</th>
             </tr>
@@ -208,6 +213,14 @@ export function UsersPage() {
                 <td>{user.name}</td>
                 <td>{user.username}</td>
                 <td>{user.email}</td>
+                <td>
+                  <div className="stacked-cell">
+                    <strong>{propertyLabel(user.activeOrganisationAccess?.organisation)}</strong>
+                    {user.primaryOrganisation && user.primaryOrganisation.id !== user.activeOrganisationAccess?.organisation.id && (
+                      <span>Primary: {propertyLabel(user.primaryOrganisation)}</span>
+                    )}
+                  </div>
+                </td>
                 <td>{user.role.replace("_", " ")}</td>
                 <td>{user.isActive ? "Active" : "Inactive"}</td>
                 <td>
