@@ -82,7 +82,8 @@ export function downloadWeeklyRosterPdf(roster: RosterResponse, options: PdfOpti
     y += rowHeight;
   });
 
-  doc.save(`weekly-roster-${roster.startDate}.pdf`);
+  const weekSlug = roster.weekNumber ? `week-${String(roster.weekNumber).padStart(2, "0")}-${roster.weekYear ?? ""}`.replace(/-$/, "") : roster.startDate;
+  doc.save(`weekly-roster-${weekSlug}.pdf`);
 }
 
 function fillPage(doc: jsPDF, colours: PdfColours) {
@@ -94,7 +95,8 @@ function drawTitle(doc: jsPDF, roster: RosterResponse, colours: PdfColours) {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(16);
   doc.setTextColor(...colours.text);
-  doc.text("Weekly roster", PAGE_MARGIN, PAGE_MARGIN + 2);
+  const weekLabel = roster.weekNumber ? ` - Week ${roster.weekNumber}${roster.weekYear ? `, ${roster.weekYear}` : ""}` : "";
+  doc.text(`Weekly roster${weekLabel}`, PAGE_MARGIN, PAGE_MARGIN + 2);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   doc.setTextColor(...colours.muted);

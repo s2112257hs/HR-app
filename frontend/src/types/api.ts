@@ -4,12 +4,59 @@ export type DayMarkerType = "RDO" | "LEAVE" | "SICK";
 export type User = {
   id: string;
   organisationId: string;
+  orgCode?: string;
   name: string;
   username?: string | null;
   email: string;
   role: UserRole;
+  isSuperAdmin?: boolean;
   isActive?: boolean;
   lastLoginAt?: string | null;
+};
+
+export type OrganisationSummary = {
+  id: string;
+  code: string;
+  name: string;
+  role: UserRole;
+};
+
+export type SuperAdminOrganisation = {
+  id: string;
+  code: string;
+  name: string;
+  timezone: string;
+  weekStartDay: number;
+  createdAt: string;
+  stats: {
+    usersCount: number;
+    employeesCount: number;
+    departmentsCount: number;
+    shiftsCount: number;
+  };
+};
+
+export type SuperAdminUser = {
+  id: string;
+  name: string;
+  username?: string | null;
+  email: string;
+  role: UserRole;
+  isActive: boolean;
+  primaryOrganisation: {
+    id: string;
+    code: string;
+    name: string;
+  };
+  memberships: Array<{
+    organisation: {
+      id: string;
+      code: string;
+      name: string;
+    };
+    role: UserRole;
+    isActive: boolean;
+  }>;
 };
 
 export type Employee = {
@@ -95,6 +142,8 @@ export type RosterResponse = {
   windowStartAt?: string;
   windowEndAt?: string;
   timezone: string;
+  weekNumber?: number;
+  weekYear?: number;
   weekStartDay?: number;
   dates: string[];
   employees: RosterEmployee[];

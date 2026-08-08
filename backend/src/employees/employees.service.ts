@@ -1,7 +1,9 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { AuditService } from "../audit/audit.service";
+import { TenantEntityService } from "../common/services/tenant-entity.service";
 import { AuthenticatedUser } from "../common/types/authenticated-user";
+import { sortByPrimaryDepartment } from "../common/utils/employees";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateEmployeeDto } from "./dto/create-employee.dto";
 import { UpdateEmployeeDto } from "./dto/update-employee.dto";
@@ -22,7 +24,8 @@ const EMPLOYEE_INCLUDE = {
 export class EmployeesService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly auditService: AuditService
+    private readonly auditService: AuditService,
+    private readonly tenantEntityService: TenantEntityService
   ) {}
 
   list(organisationId: string, status: string, search?: string) {
@@ -51,7 +54,7 @@ export class EmployeesService {
         include: EMPLOYEE_INCLUDE,
         orderBy: [{ displayOrder: "asc" }, { firstName: "asc" }]
       })
-      .then((employees) => this.sortByPrimaryDepartment(employees));
+      .then((employees) => sortByPrimaryDepartment(employees));
   }
 
   get(organisationId: string, id: string) {
@@ -200,47 +203,12 @@ export class EmployeesService {
       return;
     }
 
-    const department = await this.prisma.department.findFirst({
-      where: {
-        id: primaryDepartmentId,
-        organisationId,
-        isActive: true,
-        deletedAt: null
-      },
-      select: { id: true }
-    });
-
-    if (!department) {
-      throw new BadRequestException({
-        error: "VALIDATION_ERROR",
-        message: "The request contains invalid information.",
-        fields: {
-          primaryDepartmentId: "Primary department must be active and belong to the current organisation."
-        }
-      });
-    }
-  }
-
-  private sortByPrimaryDepartment<T extends { displayOrder: number; firstName: string; primaryDepartment: { displayOrder: number; name: string } | null }>(
-    employees: T[]
-  ) {
-    return employees.sort((left, right) => {
-      const departmentOrder = (left.primaryDepartment?.displayOrder ?? Number.MAX_SAFE_INTEGER) - (right.primaryDepartment?.displayOrder ?? Number.MAX_SAFE_INTEGER);
-      if (departmentOrder !== 0) {
-        return departmentOrder;
-      }
-
-      const departmentName = (left.primaryDepartment?.name ?? "").localeCompare(right.primaryDepartment?.name ?? "");
-      if (departmentName !== 0) {
-        return departmentName;
-      }
-
-      if (left.displayOrder !== right.displayOrder) {
-        return left.displayOrder - right.displayOrder;
-      }
-
-      return left.firstName.localeCompare(right.firstName);
-    });
+    await this.tenantEntityService.ensureActiveDepartment(
+      organisationId,
+      primaryDepartmentId,
+      "primaryDepartmentId",
+      "Primary department must be active and belong to the current organisation."
+    );
   }
 
   private trimOptional(value?: string): string | null | undefined {

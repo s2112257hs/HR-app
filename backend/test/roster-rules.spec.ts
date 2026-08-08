@@ -1,5 +1,6 @@
-import { rangesOverlap } from "../src/common/utils/overlap";
-import { buildRosterRange } from "../src/common/utils/roster-dates";
+import { BadRequestException } from "@nestjs/common";
+import { durationMinutes, rangesOverlap } from "../src/common/utils/overlap";
+import { buildRosterRange, dateKeysOverlappingRange, dateKeyToUtcDate, parseRosterDate, utcDateToDateKey } from "../src/common/utils/roster-dates";
 
 describe("roster rules", () => {
   it("returns seven consecutive dates from the selected leftmost date", () => {
@@ -48,5 +49,41 @@ describe("roster rules", () => {
         { startAt: new Date("2026-08-21T05:00:00+05:00"), endAt: new Date("2026-08-21T08:00:00+05:00") }
       )
     ).toBe(true);
+  });
+
+  it("calculates duration in whole minutes", () => {
+    expect(durationMinutes(new Date("2026-08-20T08:00:00+05:00"), new Date("2026-08-20T09:45:30+05:00"))).toBe(105);
+  });
+
+  it("rejects invalid roster start times", () => {
+    expect(() => buildRosterRange("2026-08-20", "Indian/Maldives", 1, "7am")).toThrow(BadRequestException);
+  });
+
+  it("rejects invalid roster dates", () => {
+    expect(() => buildRosterRange("not-a-date", "Indian/Maldives", 1)).toThrow(BadRequestException);
+  });
+
+  it("parses local roster dates into date keys and UTC date columns", () => {
+    const parsed = parseRosterDate("2026-08-20", "Indian/Maldives");
+
+    expect(parsed.dateKey).toBe("2026-08-20");
+    expect(parsed.date.toISOString()).toBe("2026-08-20T00:00:00.000Z");
+    expect(dateKeyToUtcDate("2026-08-21").toISOString()).toBe("2026-08-21T00:00:00.000Z");
+    expect(utcDateToDateKey(parsed.date)).toBe("2026-08-20");
+  });
+
+  it("rejects invalid shared date helper inputs", () => {
+    expect(() => parseRosterDate("not-a-date", "Indian/Maldives", "sourceDate")).toThrow(BadRequestException);
+    expect(() => dateKeyToUtcDate("not-a-date", "date")).toThrow(BadRequestException);
+  });
+
+  it("returns each local date touched by an overnight range", () => {
+    expect(
+      dateKeysOverlappingRange(
+        new Date("2026-08-20T20:00:00+05:00"),
+        new Date("2026-08-22T00:00:00+05:00"),
+        "Indian/Maldives"
+      )
+    ).toEqual(["2026-08-20", "2026-08-21"]);
   });
 });

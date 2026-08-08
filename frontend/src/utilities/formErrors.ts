@@ -53,6 +53,10 @@ export function friendlyApiMessage(error: unknown, fallback: string) {
     return Object.values(error.body.fields ?? {})[0] ?? "This employee has an RDO, leave or sick marker for that day.";
   }
 
+  if (error.body.error === "IDENTITY_CONFLICT") {
+    return friendlySentence(error.body.message) || fallback;
+  }
+
   if (error.body.fields && Object.keys(error.body.fields).length > 0) {
     const messages = Object.entries(error.body.fields).map(([field, message]) => {
       const normalisedField = normaliseErrorField(field, message);

@@ -32,4 +32,3 @@ export class RolesGuard implements CanActivate {
     return requiredRoles.some((role) => ROLE_LEVEL[user.role] >= ROLE_LEVEL[role]);
   }
 }
-

@@ -1,6 +1,7 @@
-import { Building2, Calculator, CalendarCheck, CalendarDays, CalendarRange, LogOut, Moon, PanelLeftClose, PanelLeftOpen, Settings, Sun, UserCog, Users } from "lucide-react";
+import { Building2, Calculator, CalendarCheck, CalendarDays, CalendarRange, LogOut, Moon, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, Sun, UserCog, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
+import { OrganisationSwitcher } from "./OrganisationSwitcher";
 import { useAuth } from "../features/authentication/AuthProvider";
 
 const navItems = [
@@ -11,7 +12,8 @@ const navItems = [
   { to: "/back-office/employees", label: "Employees", icon: Users, managerAllowed: true },
   { to: "/back-office/departments", label: "Departments", icon: Building2, managerAllowed: true },
   { to: "/back-office/users", label: "Users", icon: UserCog, adminOnly: true },
-  { to: "/settings", label: "Settings", icon: Settings, adminOnly: true }
+  { to: "/settings", label: "Settings", icon: Settings, adminOnly: true },
+  { to: "/super-admin", label: "Super Admin", icon: ShieldCheck, superAdminOnly: true }
 ];
 
 const THEME_KEY = "hr-roster-theme";
@@ -27,12 +29,16 @@ export function AppLayout() {
     return window.matchMedia("(prefers-color-scheme: dark)").matches;
   });
   const visibleNavItems = navItems.filter((item) => {
+    if (item.superAdminOnly) {
+      return user?.isSuperAdmin;
+    }
+
     if (item.adminOnly) {
-      return user?.role === "ADMIN";
+      return user?.role === "ADMIN" || user?.isSuperAdmin;
     }
 
     if (item.managerAllowed) {
-      return user?.role === "ADMIN" || user?.role === "ROSTER_MANAGER";
+      return user?.role === "ADMIN" || user?.role === "ROSTER_MANAGER" || user?.isSuperAdmin;
     }
 
     return true;
@@ -50,7 +56,7 @@ export function AppLayout() {
           <div className="brand-mark" title="HR Roster">HR</div>
           <div>
             <strong>Roster</strong>
-            <span>{user?.role.replace("_", " ")}</span>
+            <span>{user?.isSuperAdmin ? "SUPER ADMIN" : user?.role.replace("_", " ")}</span>
           </div>
           <button
             className="icon-button sidebar-toggle"
@@ -82,7 +88,12 @@ export function AppLayout() {
         </div>
       </aside>
       <main className="main-pane">
-        <Outlet />
+        <header className="top-nav-bar" style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", padding: "0.75rem 1.5rem", borderBottom: "1px solid var(--color-border, #e5e7eb)", background: "var(--color-bg-surface, #ffffff)" }}>
+          <OrganisationSwitcher />
+        </header>
+        <div className="content-pane" style={{ padding: "1.5rem" }}>
+          <Outlet />
+        </div>
       </main>
     </div>
   );

@@ -8,6 +8,7 @@ import { OtCalculatorPage } from "../features/roster/OtCalculatorPage";
 import { RdoTrackerPage } from "../features/roster/RdoTrackerPage";
 import { WeeklyRosterPage } from "../features/roster/WeeklyRosterPage";
 import { UsersPage } from "../features/users/UsersPage";
+import { SuperAdminPage } from "../features/super-admin/SuperAdminPage";
 import { RequireAuth } from "../routes/RequireAuth";
 import { SettingsPage } from "../pages/SettingsPage";
 import { useAuth } from "../features/authentication/AuthProvider";
@@ -32,6 +33,9 @@ export function App() {
             <Route path="/back-office/users" element={<UsersPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
+          <Route element={<RequireSuperAdmin />}>
+            <Route path="/super-admin" element={<SuperAdminPage />} />
+          </Route>
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/roster/weekly" replace />} />
@@ -39,10 +43,20 @@ export function App() {
   );
 }
 
+function RequireSuperAdmin() {
+  const { user } = useAuth();
+
+  if (!user?.isSuperAdmin) {
+    return <Navigate to="/roster/weekly" replace />;
+  }
+
+  return <Outlet />;
+}
+
 function RequireAdmin() {
   const { user } = useAuth();
 
-  if (user?.role !== "ADMIN") {
+  if (user?.role !== "ADMIN" && !user?.isSuperAdmin) {
     return <Navigate to="/roster/weekly" replace />;
   }
 
@@ -52,7 +66,7 @@ function RequireAdmin() {
 function RequireManagerOrAdmin() {
   const { user } = useAuth();
 
-  if (user?.role !== "ADMIN" && user?.role !== "ROSTER_MANAGER") {
+  if (user?.role !== "ADMIN" && user?.role !== "ROSTER_MANAGER" && !user?.isSuperAdmin) {
     return <Navigate to="/roster/weekly" replace />;
   }
 

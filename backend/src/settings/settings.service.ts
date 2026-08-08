@@ -1,8 +1,11 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { DateTime } from "luxon";
 import { AuditService } from "../audit/audit.service";
+import { TenantEntityService } from "../common/services/tenant-entity.service";
 import { AuthenticatedUser } from "../common/types/authenticated-user";
+import { validationError } from "../common/utils/api-errors";
+import { employeeDisplayName } from "../common/utils/employees";
+import { dateKeyToUtcDate, utcDateToDateKey } from "../common/utils/roster-dates";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateValidationRuleDto } from "./dto/create-validation-rule.dto";
 import { UpdateRdoBalancesDto } from "./dto/update-rdo-balances.dto";
@@ -42,7 +45,8 @@ type ValidationRuleForResponse = {
 export class SettingsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly auditService: AuditService
+    private readonly auditService: AuditService,
+    private readonly tenantEntityService: TenantEntityService
   ) {}
 
   async get(organisationId: string) {
@@ -71,7 +75,7 @@ export class SettingsService {
         weekStartDay: true
       }
     });
-    const rdoTrackingStartDate = this.dateFromKey(dto.rdoTrackingStartDate, "rdoTrackingStartDate");
+    const rdoTrackingStartDate = dateKeyToUtcDate(dto.rdoTrackingStartDate, "rdoTrackingStartDate");
     const weekStartDay = this.validateWeekStartDay(dto.weekStartDay);
     const updated = await this.prisma.organisation.update({
       where: { id: currentUser.organisationId },
@@ -121,7 +125,7 @@ export class SettingsService {
 
     return employees.map((employee) => ({
       employeeId: employee.id,
-      displayName: employee.preferredName || [employee.firstName, employee.lastName].filter(Boolean).join(" "),
+      displayName: employeeDisplayName(employee),
       primaryDepartment: employee.primaryDepartment
         ? {
             id: employee.primaryDepartment.id,
@@ -152,7 +156,7 @@ export class SettingsService {
     const missingId = employeeIds.find((employeeId) => !activeIds.has(employeeId));
 
     if (missingId) {
-      throw this.validationError("balances", "RDO balance can only be set for active employees in this organisation.");
+      throw validationError("balances", "RDO balance can only be set for active employees in this organisation.");
     }
 
     await this.prisma.$transaction(
@@ -204,7 +208,7 @@ export class SettingsService {
       isActive: true
     });
     this.validateRuleTimes(data);
-    await this.ensureActiveDepartment(currentUser.organisationId, data.departmentId);
+    await this.tenantEntityService.ensureActiveDepartment(currentUser.organisationId, data.departmentId);
     await this.assertRulesCanCoexist(currentUser.organisationId, data);
 
     try {
@@ -245,7 +249,7 @@ export class SettingsService {
     this.validateRuleTimes(data);
 
     if (dto.departmentId) {
-      await this.ensureActiveDepartment(currentUser.organisationId, dto.departmentId);
+      await this.tenantEntityService.ensureActiveDepartment(currentUser.organisationId, dto.departmentId);
     }
     if (data.isActive) {
       await this.assertRulesCanCoexist(currentUser.organisationId, data, id);
@@ -279,7 +283,7 @@ export class SettingsService {
     const before = await this.findRuleOrThrow(currentUser.organisationId, id);
 
     if (isActive) {
-      await this.ensureActiveDepartment(currentUser.organisationId, before.departmentId);
+      await this.tenantEntityService.ensureActiveDepartment(currentUser.organisationId, before.departmentId);
       await this.assertRulesCanCoexist(
         currentUser.organisationId,
         {
@@ -313,12 +317,20 @@ export class SettingsService {
     return this.ruleToResponse(updated);
   }
 
+  deactivateValidationRule(currentUser: AuthenticatedUser, id: string) {
+    return this.setValidationRuleActive(currentUser, id, false);
+  }
+
+  reactivateValidationRule(currentUser: AuthenticatedUser, id: string) {
+    return this.setValidationRuleActive(currentUser, id, true);
+  }
+
   private toResponse(organisation: { id: string; name: string; timezone: string; rdoTrackingStartDate: Date; weekStartDay: number }) {
     return {
       id: organisation.id,
       name: organisation.name,
       timezone: organisation.timezone,
-      rdoTrackingStartDate: DateTime.fromJSDate(organisation.rdoTrackingStartDate, { zone: "utc" }).toISODate(),
+      rdoTrackingStartDate: utcDateToDateKey(organisation.rdoTrackingStartDate),
       weekStartDay: organisation.weekStartDay
     };
   }
@@ -357,13 +369,13 @@ export class SettingsService {
 
   private validateRuleTimes(data: ValidationRuleData) {
     if (!data.name) {
-      throw this.validationError("name", "Rule name is required.");
+      throw validationError("name", "Rule name is required.");
     }
     const startMinute = this.parseTimeToMinutes(data.startTime, "startTime");
     const endMinute = this.ruleEndMinute(data.endTime, "endTime");
 
     if (endMinute <= startMinute) {
-      throw this.validationError("endTime", "End time must be later than start time.");
+      throw validationError("endTime", "End time must be later than start time.");
     }
   }
 
@@ -429,25 +441,9 @@ export class SettingsService {
     return rule;
   }
 
-  private async ensureActiveDepartment(organisationId: string, departmentId: string) {
-    const department = await this.prisma.department.findFirst({
-      where: {
-        id: departmentId,
-        organisationId,
-        isActive: true,
-        deletedAt: null
-      },
-      select: { id: true }
-    });
-
-    if (!department) {
-      throw this.validationError("departmentId", "Department must be active and belong to the current organisation.");
-    }
-  }
-
   private parseTimeToMinutes(time: string, field: string) {
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
-      throw this.validationError(field, "Time must use HH:mm format.");
+      throw validationError(field, "Time must use HH:mm format.");
     }
 
     const [hours, minutes] = time.split(":").map(Number);
@@ -474,38 +470,12 @@ export class SettingsService {
     }
   }
 
-  private dateFromKey(date: string, field: string) {
-    const parsed = DateTime.fromISO(date, { zone: "utc" }).startOf("day");
-
-    if (!parsed.isValid) {
-      throw new BadRequestException({
-        error: "VALIDATION_ERROR",
-        message: "The request contains invalid information.",
-        fields: {
-          [field]: "Date must be a valid ISO date."
-        }
-      });
-    }
-
-    return parsed.toJSDate();
-  }
-
   private validateWeekStartDay(day: number) {
     const value = Number(day);
     if (!Number.isInteger(value) || value < 1 || value > 7) {
-      throw this.validationError("weekStartDay", "Week start day must be between Monday and Sunday.");
+      throw validationError("weekStartDay", "Week start day must be between Monday and Sunday.");
     }
 
     return value;
-  }
-
-  private validationError(field: string, message: string) {
-    return new BadRequestException({
-      error: "VALIDATION_ERROR",
-      message: "The request contains invalid information.",
-      fields: {
-        [field]: message
-      }
-    });
   }
 }

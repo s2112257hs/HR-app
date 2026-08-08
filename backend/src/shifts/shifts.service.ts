@@ -1,9 +1,13 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma, ShiftStatus, UserRole } from "@prisma/client";
 import { DateTime } from "luxon";
 import { AuditService } from "../audit/audit.service";
+import { TenantEntityService } from "../common/services/tenant-entity.service";
 import { AuthenticatedUser } from "../common/types/authenticated-user";
+import { validationError } from "../common/utils/api-errors";
 import { durationMinutes } from "../common/utils/overlap";
+import { dateKeysOverlappingRange, dateKeyToUtcDate, utcDateToDateKey } from "../common/utils/roster-dates";
+import { assertManagerCanEditTargetDates } from "../common/utils/roster-permissions";
 import { PrismaService } from "../prisma/prisma.service";
 import { RosterLocksService } from "../roster-locks/roster-locks.service";
 import { CheckOverlapDto } from "./dto/check-overlap.dto";
@@ -20,7 +24,8 @@ export class ShiftsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
-    private readonly rosterLocksService: RosterLocksService
+    private readonly rosterLocksService: RosterLocksService,
+    private readonly tenantEntityService: TenantEntityService
   ) {}
 
   async get(organisationId: string, id: string) {
@@ -56,7 +61,7 @@ export class ShiftsService {
     await this.rosterLocksService.assertWritable(currentUser);
     const range = this.validateRange(dto.startAt, dto.endAt, dto.unpaidBreakMinutes ?? 0);
     await this.assertManagerCanEditShiftStart(currentUser, range.startAt, "startAt");
-    await this.ensureActiveEmployeeAndDepartment(currentUser.organisationId, dto.employeeId, dto.departmentId);
+    await this.tenantEntityService.ensureActiveEmployeeAndDepartment(currentUser.organisationId, dto.employeeId, dto.departmentId);
     await this.assertNoDayMarkerConflict(currentUser.organisationId, dto.employeeId, range.startAt, range.endAt, "startAt");
     const overlaps = await this.findOverlaps(currentUser.organisationId, dto.employeeId, range.startAt, range.endAt);
 
@@ -122,7 +127,7 @@ export class ShiftsService {
     const range = this.validateRange(startAt, endAt, unpaidBreakMinutes);
     await this.assertManagerCanEditShiftStart(currentUser, before.startAt, "startAt");
     await this.assertManagerCanEditShiftStart(currentUser, range.startAt, "startAt");
-    await this.ensureActiveEmployeeAndDepartment(currentUser.organisationId, employeeId, departmentId);
+    await this.tenantEntityService.ensureActiveEmployeeAndDepartment(currentUser.organisationId, employeeId, departmentId);
     await this.assertNoDayMarkerConflict(currentUser.organisationId, employeeId, range.startAt, range.endAt, "startAt");
     const overlaps = await this.findOverlaps(currentUser.organisationId, employeeId, range.startAt, range.endAt, id);
 
@@ -208,28 +213,7 @@ export class ShiftsService {
       select: { timezone: true }
     });
     const rosterDate = DateTime.fromJSDate(startAt).setZone(organisation.timezone).toISODate();
-    this.assertManagerCanEditTargetDates(currentUser, rosterDate ? [rosterDate] : [], organisation.timezone, field);
-  }
-
-  private assertManagerCanEditTargetDates(currentUser: AuthenticatedUser, targetDates: string[], timezone: string, field = "targetStartDate") {
-    if (currentUser.role !== UserRole.ROSTER_MANAGER) {
-      return;
-    }
-
-    const today = DateTime.now().setZone(timezone).startOf("day");
-    const firstPastDate = targetDates.find((targetDate) => DateTime.fromISO(targetDate, { zone: timezone }).startOf("day") < today);
-
-    if (!firstPastDate) {
-      return;
-    }
-
-    throw new ForbiddenException({
-      error: "PAST_ROSTER_LOCKED",
-      message: "Roster managers cannot edit past roster days. Ask an admin to change previous dates.",
-      fields: {
-        [field]: `${firstPastDate} is a past roster day.`
-      }
-    });
+    assertManagerCanEditTargetDates(currentUser, rosterDate ? [rosterDate] : [], organisation.timezone, field);
   }
 
   private validateRange(startAtInput: string, endAtInput: string, unpaidBreakMinutes = 0) {
@@ -237,39 +221,21 @@ export class ShiftsService {
     const endAt = new Date(endAtInput);
 
     if (Number.isNaN(startAt.getTime())) {
-      throw this.validationError("startAt", "Start timestamp is required.");
+      throw validationError("startAt", "Start timestamp is required.");
     }
     if (Number.isNaN(endAt.getTime())) {
-      throw this.validationError("endAt", "End timestamp is required.");
+      throw validationError("endAt", "End timestamp is required.");
     }
     if (endAt <= startAt) {
-      throw this.validationError("endAt", "End time must be later than start time.");
+      throw validationError("endAt", "End time must be later than start time.");
     }
 
     const totalMinutes = durationMinutes(startAt, endAt);
     if (unpaidBreakMinutes < 0 || unpaidBreakMinutes > totalMinutes) {
-      throw this.validationError("unpaidBreakMinutes", "Unpaid break cannot be negative or exceed shift duration.");
+      throw validationError("unpaidBreakMinutes", "Unpaid break cannot be negative or exceed shift duration.");
     }
 
     return { startAt, endAt };
-  }
-
-  private async ensureActiveEmployeeAndDepartment(organisationId: string, employeeId: string, departmentId: string) {
-    const [employee, department] = await Promise.all([
-      this.prisma.employee.findFirst({
-        where: { id: employeeId, organisationId, isActive: true, deletedAt: null }
-      }),
-      this.prisma.department.findFirst({
-        where: { id: departmentId, organisationId, isActive: true, deletedAt: null }
-      })
-    ]);
-
-    if (!employee) {
-      throw this.validationError("employeeId", "Employee must be active and belong to the current organisation.");
-    }
-    if (!department) {
-      throw this.validationError("departmentId", "Department must be active and belong to the current organisation.");
-    }
   }
 
   private async assertNoDayMarkerConflict(organisationId: string, employeeId: string, startAt: Date, endAt: Date, field: string) {
@@ -293,7 +259,7 @@ export class ShiftsService {
 
     for (const shift of shifts) {
       const employeeDates = datesByEmployee.get(shift.employeeId) ?? new Set<string>();
-      for (const date of this.dateKeysOverlappingRange(shift.startAt, shift.endAt, timezone)) {
+      for (const date of dateKeysOverlappingRange(shift.startAt, shift.endAt, timezone)) {
         employeeDates.add(date);
       }
       datesByEmployee.set(shift.employeeId, employeeDates);
@@ -301,7 +267,7 @@ export class ShiftsService {
 
     const conditions: Prisma.DayMarkerWhereInput[] = Array.from(datesByEmployee.entries()).map(([employeeId, dates]) => ({
       employeeId,
-      date: { in: Array.from(dates).map((date) => this.dateFromKey(date)) }
+      date: { in: Array.from(dates).map((date) => dateKeyToUtcDate(date)) }
     }));
 
     if (conditions.length === 0) {
@@ -322,24 +288,9 @@ export class ShiftsService {
     });
   }
 
-  private dateKeysOverlappingRange(startAt: Date, endAt: Date, timezone: string) {
-    const firstDay = DateTime.fromJSDate(startAt).setZone(timezone).startOf("day");
-    const lastDay = DateTime.fromJSDate(endAt).setZone(timezone).minus({ millisecond: 1 }).startOf("day");
-    const dates: string[] = [];
-
-    for (let cursor = firstDay; cursor <= lastDay; cursor = cursor.plus({ days: 1 })) {
-      const date = cursor.toISODate();
-      if (date) {
-        dates.push(date);
-      }
-    }
-
-    return dates;
-  }
-
   private dayMarkerConflict(conflicts: Array<{ employeeId: string; date: Date; type: string }>, field: string, message: string) {
     const firstConflict = conflicts[0];
-    const firstDate = DateTime.fromJSDate(firstConflict.date, { zone: "utc" }).toISODate();
+    const firstDate = utcDateToDateKey(firstConflict.date);
 
     return new ConflictException({
       error: "DAY_MARKER_CONFLICT",
@@ -349,7 +300,7 @@ export class ShiftsService {
       },
       markers: conflicts.map((conflict) => ({
         employeeId: conflict.employeeId,
-        date: DateTime.fromJSDate(conflict.date, { zone: "utc" }).toISODate(),
+        date: utcDateToDateKey(conflict.date),
         type: conflict.type
       }))
     });
@@ -385,17 +336,4 @@ export class ShiftsService {
     });
   }
 
-  private dateFromKey(date: string) {
-    return DateTime.fromISO(date, { zone: "utc" }).startOf("day").toJSDate();
-  }
-
-  private validationError(field: string, message: string) {
-    return new BadRequestException({
-      error: "VALIDATION_ERROR",
-      message: "The request contains invalid information.",
-      fields: {
-        [field]: message
-      }
-    });
-  }
 }

@@ -1,7 +1,7 @@
-import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import * as bcrypt from "bcryptjs";
 import { AuditService } from "../audit/audit.service";
+import { type ProvisionedUser, UserProvisioningService } from "../common/services/user-provisioning.service";
 import { AuthenticatedUser } from "../common/types/authenticated-user";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateUserDto } from "./dto/create-user.dto";
@@ -11,12 +11,16 @@ import { UpdateUserDto } from "./dto/update-user.dto";
 export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly auditService: AuditService
+    private readonly auditService: AuditService,
+    private readonly userProvisioningService: UserProvisioningService
   ) {}
 
   list(organisationId: string) {
     return this.prisma.user.findMany({
-      where: { organisationId },
+      where: {
+        organisationId,
+        isSuperAdmin: false
+      },
       orderBy: { name: "asc" },
       select: this.safeSelect()
     });
@@ -33,14 +37,21 @@ export class UsersService {
       });
     }
 
-    const created = await this.createOrThrowFriendly({
-      organisationId: currentUser.organisationId,
-      name: dto.name.trim(),
-      username: this.trimOptionalLower(dto.username),
-      email: dto.email.trim().toLowerCase(),
-      passwordHash: await bcrypt.hash(dto.password, 12),
-      role: dto.role
-    });
+    let created: ProvisionedUser;
+    try {
+      created = await this.userProvisioningService.createUserWithMembership({
+        organisationId: currentUser.organisationId,
+        name: dto.name,
+        username: dto.username,
+        email: dto.email,
+        password: dto.password,
+        role: dto.role
+      });
+    } catch (error) {
+      this.userProvisioningService.throwFriendlyUniqueUserError(error);
+      throw error;
+    }
+
     await this.auditService.record({
       organisationId: currentUser.organisationId,
       userId: currentUser.sub,
@@ -54,17 +65,22 @@ export class UsersService {
 
   async update(currentUser: AuthenticatedUser, id: string, dto: UpdateUserDto) {
     const before = await this.prisma.user.findFirstOrThrow({
-      where: { id, organisationId: currentUser.organisationId },
+      where: { id, organisationId: currentUser.organisationId, isSuperAdmin: false },
       select: this.safeSelect()
     });
     const data: Prisma.UserUpdateInput = {};
     if (dto.name !== undefined) data.name = dto.name.trim();
-    if (dto.username !== undefined) data.username = this.trimOptionalLower(dto.username);
-    if (dto.email !== undefined) data.email = dto.email.trim().toLowerCase();
+    if (dto.username !== undefined) data.username = this.userProvisioningService.normaliseOptionalUsername(dto.username);
+    if (dto.email !== undefined) data.email = this.userProvisioningService.normaliseEmail(dto.email);
     if (dto.role !== undefined) data.role = dto.role;
-    if (dto.password !== undefined) data.passwordHash = await bcrypt.hash(dto.password, 12);
+    if (dto.password !== undefined) data.passwordHash = await this.userProvisioningService.hashPassword(dto.password);
 
     const updated = await this.updateOrThrowFriendly(id, data);
+
+    if (dto.role !== undefined) {
+      await this.userProvisioningService.upsertMembership(id, currentUser.organisationId, dto.role);
+    }
+
     await this.auditService.record({
       organisationId: currentUser.organisationId,
       userId: currentUser.sub,
@@ -79,7 +95,7 @@ export class UsersService {
 
   async setActive(currentUser: AuthenticatedUser, id: string, isActive: boolean) {
     const before = await this.prisma.user.findFirstOrThrow({
-      where: { id, organisationId: currentUser.organisationId },
+      where: { id, organisationId: currentUser.organisationId, isSuperAdmin: false },
       select: this.safeSelect()
     });
     const updated = await this.prisma.user.update({
@@ -99,6 +115,14 @@ export class UsersService {
     return updated;
   }
 
+  deactivate(currentUser: AuthenticatedUser, id: string) {
+    return this.setActive(currentUser, id, false);
+  }
+
+  restore(currentUser: AuthenticatedUser, id: string) {
+    return this.setActive(currentUser, id, true);
+  }
+
   private safeSelect(): Prisma.UserSelect {
     return {
       id: true,
@@ -114,18 +138,6 @@ export class UsersService {
     };
   }
 
-  private async createOrThrowFriendly(data: Prisma.UserCreateInput | Prisma.UserUncheckedCreateInput) {
-    try {
-      return await this.prisma.user.create({
-        data,
-        select: this.safeSelect()
-      });
-    } catch (error) {
-      this.throwFriendlyUniqueError(error);
-      throw error;
-    }
-  }
-
   private async updateOrThrowFriendly(id: string, data: Prisma.UserUpdateInput) {
     try {
       return await this.prisma.user.update({
@@ -134,41 +146,8 @@ export class UsersService {
         select: this.safeSelect()
       });
     } catch (error) {
-      this.throwFriendlyUniqueError(error);
+      this.userProvisioningService.throwFriendlyUniqueUserError(error);
       throw error;
     }
-  }
-
-  private trimOptionalLower(value?: string | null): string | null | undefined {
-    if (value === undefined) {
-      return undefined;
-    }
-    if (value === null) {
-      return null;
-    }
-
-    const trimmed = value.trim().toLowerCase();
-    return trimmed.length > 0 ? trimmed : null;
-  }
-
-  private throwFriendlyUniqueError(error: unknown) {
-    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
-      return;
-    }
-
-    const target = Array.isArray(error.meta?.target) ? error.meta.target.join(",") : String(error.meta?.target ?? "");
-    if (target.includes("username")) {
-      throw new ConflictException({
-        error: "UNIQUE_CONSTRAINT",
-        message: "Username is already in use.",
-        fields: { username: "Username is already in use." }
-      });
-    }
-
-    throw new ConflictException({
-      error: "UNIQUE_CONSTRAINT",
-      message: "Email is already in use.",
-      fields: { email: "Email is already in use." }
-    });
   }
 }

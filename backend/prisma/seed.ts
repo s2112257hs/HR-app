@@ -8,19 +8,50 @@ const adminEmail = process.env.SEED_ADMIN_EMAIL ?? "admin@example.com";
 const adminUsername = process.env.SEED_ADMIN_USERNAME ?? "admin";
 const adminPassword = process.env.SEED_ADMIN_PASSWORD ?? "admin123";
 
+const superadminEmail = process.env.SEED_SUPERADMIN_EMAIL ?? "superadmin@example.com";
+const superadminUsername = process.env.SEED_SUPERADMIN_USERNAME ?? "superadmin";
+const superadminPassword = process.env.SEED_SUPERADMIN_PASSWORD ?? "superadmin123";
+
 async function main() {
   const organisation = await prisma.organisation.upsert({
     where: { id: "00000000-0000-4000-8000-000000000001" },
     create: {
       id: "00000000-0000-4000-8000-000000000001",
+      code: "0001",
       name: organisationName,
       timezone: organisationTimezone,
       weekStartDay: 1
     },
     update: {
+      code: "0001",
       name: organisationName,
       timezone: organisationTimezone,
       weekStartDay: 1
+    }
+  });
+
+  const superadmin = await prisma.user.upsert({
+    where: {
+      organisationId_email: {
+        organisationId: organisation.id,
+        email: superadminEmail
+      }
+    },
+    create: {
+      organisationId: organisation.id,
+      name: "System Super Admin",
+      username: superadminUsername.trim().toLowerCase(),
+      email: superadminEmail,
+      passwordHash: await bcrypt.hash(superadminPassword, 12),
+      role: UserRole.ADMIN,
+      isSuperAdmin: true
+    },
+    update: {
+      name: "System Super Admin",
+      username: superadminUsername.trim().toLowerCase(),
+      role: UserRole.ADMIN,
+      isSuperAdmin: true,
+      isActive: true
     }
   });
 
@@ -37,11 +68,49 @@ async function main() {
       username: adminUsername.trim().toLowerCase(),
       email: adminEmail,
       passwordHash: await bcrypt.hash(adminPassword, 12),
-      role: UserRole.ADMIN
+      role: UserRole.ADMIN,
+      isSuperAdmin: false
     },
     update: {
       name: "Admin User",
       username: adminUsername.trim().toLowerCase(),
+      role: UserRole.ADMIN,
+      isActive: true
+    }
+  });
+
+  // Provision memberships
+  await prisma.userMembership.upsert({
+    where: {
+      userId_organisationId: {
+        userId: superadmin.id,
+        organisationId: organisation.id
+      }
+    },
+    create: {
+      userId: superadmin.id,
+      organisationId: organisation.id,
+      role: UserRole.ADMIN
+    },
+    update: {
+      role: UserRole.ADMIN,
+      isActive: true
+    }
+  });
+
+  await prisma.userMembership.upsert({
+    where: {
+      userId_organisationId: {
+        userId: admin.id,
+        organisationId: organisation.id
+      }
+    },
+    create: {
+      userId: admin.id,
+      organisationId: organisation.id,
+      role: UserRole.ADMIN
+    },
+    update: {
       role: UserRole.ADMIN,
       isActive: true
     }

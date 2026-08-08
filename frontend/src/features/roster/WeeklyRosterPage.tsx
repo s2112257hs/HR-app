@@ -93,6 +93,9 @@ export function WeeklyRosterPage() {
   const departments = departmentsQuery.data ?? [];
   const weekStartDate = rosterQuery.data?.startDate ?? requestedStartDate;
   const dates = rosterQuery.data?.dates ?? getSevenDates(weekStartDate);
+  const weekLabel = rosterQuery.data?.weekNumber
+    ? `Week ${rosterQuery.data.weekNumber}${rosterQuery.data.weekYear ? `, ${rosterQuery.data.weekYear}` : ""}`
+    : "Week";
   const hasRosterLock = Boolean(lockState?.locked && lockState.lock?.lockedByUserId === user?.id);
   const rosterLockedByOther = Boolean(lockState?.locked && lockState.lock?.lockedByUserId !== user?.id);
   const canEditWeeklyRoster = lockUnavailable || hasRosterLock;
@@ -489,7 +492,7 @@ export function WeeklyRosterPage() {
         <div>
           <h1>Weekly roster</h1>
           <p>
-            {dates[0]} to {rosterQuery.data?.endDateExclusive ?? dates[6]}
+            {weekLabel} | {dates[0]} to {rosterQuery.data?.endDateExclusive ?? dates[6]}
           </p>
         </div>
         <div className="toolbar">

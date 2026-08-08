@@ -1,10 +1,15 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable } from "@nestjs/common";
+import { ConflictException, Injectable } from "@nestjs/common";
 import { DateTime } from "luxon";
-import { DayMarker, Prisma, Shift, ShiftStatus, UserRole } from "@prisma/client";
+import { DayMarker, Prisma, Shift, ShiftStatus } from "@prisma/client";
 import { AuditService } from "../audit/audit.service";
+import { TenantEntityService } from "../common/services/tenant-entity.service";
 import { AuthenticatedUser } from "../common/types/authenticated-user";
+import { validationError } from "../common/utils/api-errors";
+import { employeeDisplayName, sortByPrimaryDepartment } from "../common/utils/employees";
 import { rangesOverlap } from "../common/utils/overlap";
-import { buildRosterRange } from "../common/utils/roster-dates";
+import { buildRosterRange, dateKeysOverlappingRange, dateKeyToUtcDate, parseRosterDate, utcDateToDateKey } from "../common/utils/roster-dates";
+import { assertManagerCanEditTargetDates } from "../common/utils/roster-permissions";
+import { scheduledShiftsStartingOnDateWhere } from "../common/utils/shift-queries";
 import { PrismaService } from "../prisma/prisma.service";
 import { RosterLocksService } from "../roster-locks/roster-locks.service";
 import { CopyWeeklyCellDto } from "./dto/copy-weekly-cell.dto";
@@ -26,6 +31,8 @@ type ValidationShift = {
   startAt: Date;
   endAt: Date;
 };
+
+type ValidationCoverageShift = Pick<ValidationShift, "employeeId" | "startAt" | "endAt">;
 const MAX_WEEKLY_CELL_COPY_DAYS = 90;
 
 @Injectable()
@@ -33,7 +40,8 @@ export class RosterService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
-    private readonly rosterLocksService: RosterLocksService
+    private readonly rosterLocksService: RosterLocksService,
+    private readonly tenantEntityService: TenantEntityService
   ) {}
 
   async daily(organisationId: string, date: string, startTime = "00:00") {
@@ -92,9 +100,7 @@ export class RosterService {
     const violations = range.dates.flatMap((date) =>
       rules.flatMap((rule) => {
         const interval = this.ruleInterval(date, rule.startTime, rule.endTime, organisation.timezone);
-        const matchingShifts = shifts.filter(
-          (shift) => shift.departmentId === rule.departmentId && shift.startAt < interval.endAt && shift.endAt > interval.startAt
-        );
+        const matchingShifts = this.shiftsCoveringInterval(shifts, rule.departmentId, interval.startAt, interval.endAt);
         const coverage = this.minimumCoverage(matchingShifts, interval.startAt, interval.endAt);
 
         if (coverage.actualMin >= rule.minimumStaff) {
@@ -134,10 +140,10 @@ export class RosterService {
       where: { id: currentUser.organisationId },
       select: { timezone: true }
     });
-    const sourceDate = this.parseDate(dto.sourceDate, organisation.timezone, "sourceDate");
+    const sourceDate = parseRosterDate(dto.sourceDate, organisation.timezone, "sourceDate");
     const targetDates = this.targetDates(dto.targetStartDate, dto.targetEndDate, organisation.timezone).filter((date) => date !== sourceDate.dateKey);
-    this.assertManagerCanEditTargetDates(currentUser, targetDates, organisation.timezone);
-    await this.ensureActiveEmployee(currentUser.organisationId, dto.employeeId);
+    assertManagerCanEditTargetDates(currentUser, targetDates, organisation.timezone);
+    await this.tenantEntityService.ensureActiveEmployee(currentUser.organisationId, dto.employeeId);
 
     const sourceMarker = await this.prisma.dayMarker.findUnique({
       where: {
@@ -180,7 +186,7 @@ export class RosterService {
       );
 
       if (inactiveShift) {
-        throw this.validationError("sourceDate", "This schedule includes an inactive employee or department and cannot be copied.");
+        throw validationError("sourceDate", "This schedule includes an inactive employee or department and cannot be copied.");
       }
     }
 
@@ -204,7 +210,7 @@ export class RosterService {
             data: {
               organisationId: currentUser.organisationId,
               employeeId: dto.employeeId,
-              date: this.dateFromKey(targetDate),
+              date: dateKeyToUtcDate(targetDate),
               type: sourceMarker.type,
               notes: sourceMarker.notes,
               createdByUserId: currentUser.sub,
@@ -320,12 +326,12 @@ export class RosterService {
       select: { timezone: true }
     });
     const cells = this.normaliseCells(dto.cells, organisation.timezone);
-    this.assertManagerCanEditTargetDates(currentUser, cells.map((cell) => cell.date), organisation.timezone);
+    assertManagerCanEditTargetDates(currentUser, cells.map((cell) => cell.date), organisation.timezone);
 
     const result = await this.prisma.$transaction(async (tx) => {
       const results = [];
       for (const cell of cells) {
-        await this.ensureActiveEmployee(currentUser.organisationId, cell.employeeId);
+        await this.tenantEntityService.ensureActiveEmployee(currentUser.organisationId, cell.employeeId);
         const cleared = await this.clearWeeklyCells(tx, currentUser.organisationId, cell.employeeId, [cell.date], organisation.timezone, currentUser.sub);
         results.push({ ...cell, ...cleared });
       }
@@ -353,14 +359,14 @@ export class RosterService {
       where: { id: currentUser.organisationId },
       select: { timezone: true }
     });
-    const targetDates = dto.cells.map((cell) => this.parseDate(cell.date, organisation.timezone, "date").dateKey);
-    this.assertManagerCanEditTargetDates(currentUser, targetDates, organisation.timezone);
+    const targetDates = dto.cells.map((cell) => parseRosterDate(cell.date, organisation.timezone, "date").dateKey);
+    assertManagerCanEditTargetDates(currentUser, targetDates, organisation.timezone);
 
     const restored = await this.prisma.$transaction(async (tx) => {
       const results = [];
       for (const cell of dto.cells) {
-        const date = this.parseDate(cell.date, organisation.timezone, "date").dateKey;
-        await this.ensureActiveEmployee(currentUser.organisationId, cell.employeeId);
+        const date = parseRosterDate(cell.date, organisation.timezone, "date").dateKey;
+        await this.tenantEntityService.ensureActiveEmployee(currentUser.organisationId, cell.employeeId);
         await this.clearWeeklyCells(tx, currentUser.organisationId, cell.employeeId, [date], organisation.timezone, currentUser.sub);
 
         const marker = cell.marker
@@ -368,7 +374,7 @@ export class RosterService {
               data: {
                 organisationId: currentUser.organisationId,
                 employeeId: cell.employeeId,
-                date: this.dateFromKey(date),
+                date: dateKeyToUtcDate(date),
                 type: cell.marker.type,
                 notes: cell.marker.notes?.trim() || null,
                 createdByUserId: currentUser.sub,
@@ -381,7 +387,7 @@ export class RosterService {
 
         if (!cell.marker) {
           for (const shift of cell.shifts) {
-            await this.ensureActiveDepartment(currentUser.organisationId, shift.departmentId);
+            await this.tenantEntityService.ensureActiveDepartment(currentUser.organisationId, shift.departmentId);
             const created = await tx.shift.create({
               data: {
                 organisationId: currentUser.organisationId,
@@ -473,7 +479,7 @@ export class RosterService {
       },
       orderBy: [{ displayOrder: "asc" }, { firstName: "asc" }]
     });
-    const rows = this.sortByPrimaryDepartment(employees).map((employee) => {
+    const rows = sortByPrimaryDepartment(employees).map((employee) => {
       const hoursWorkedMinutes = employee.shifts.reduce(
         (total, shift) => total + this.overlapMinutes(range.rangeStart, range.rangeEnd, shift.startAt, shift.endAt),
         0
@@ -483,7 +489,7 @@ export class RosterService {
       return {
         employeeId: employee.id,
         employeeNumber: employee.employeeNumber,
-        displayName: employee.preferredName || [employee.firstName, employee.lastName].filter(Boolean).join(" "),
+        displayName: employeeDisplayName(employee),
         primaryDepartment: employee.primaryDepartment
           ? {
               id: employee.primaryDepartment.id,
@@ -511,11 +517,7 @@ export class RosterService {
 
   private async getRoster(organisationId: string, startDate: string, days: number, startTime = "00:00") {
     if (!startDate) {
-      throw new BadRequestException({
-        error: "VALIDATION_ERROR",
-        message: "The request contains invalid information.",
-        fields: { date: "Date is required." }
-      });
+      throw validationError("date", "Date is required.");
     }
 
     const organisation = await this.prisma.organisation.findUniqueOrThrow({
@@ -523,7 +525,7 @@ export class RosterService {
       select: { timezone: true, weekStartDay: true }
     });
     const range = buildRosterRange(startDate, organisation.timezone, days, startTime);
-    const markerDates = this.markerDatesForRange(range.rangeStart, range.rangeEnd, organisation.timezone);
+    const markerDates = dateKeysOverlappingRange(range.rangeStart, range.rangeEnd, organisation.timezone);
     const shiftWhere = {
       organisationId,
       deletedAt: null,
@@ -533,7 +535,7 @@ export class RosterService {
     };
     const markerWhere = {
       organisationId,
-      date: { in: markerDates.map((date) => this.dateFromKey(date)) }
+      date: { in: markerDates.map((date) => dateKeyToUtcDate(date)) }
     };
 
     const employees = await this.prisma.employee.findMany({
@@ -591,7 +593,7 @@ export class RosterService {
         }
       }
     });
-    const sortedEmployees = this.sortByPrimaryDepartment(employees);
+    const sortedEmployees = sortByPrimaryDepartment(employees);
 
     return {
       startDate,
@@ -599,12 +601,14 @@ export class RosterService {
       windowStartAt: range.rangeStart,
       windowEndAt: range.rangeEnd,
       timezone: organisation.timezone,
+      weekNumber: DateTime.fromISO(startDate, { zone: organisation.timezone }).weekNumber,
+      weekYear: DateTime.fromISO(startDate, { zone: organisation.timezone }).weekYear,
       weekStartDay: organisation.weekStartDay,
       dates: range.dates,
       employees: sortedEmployees.map((employee) => ({
         id: employee.id,
         employeeNumber: employee.employeeNumber,
-        displayName: employee.preferredName || [employee.firstName, employee.lastName].filter(Boolean).join(" "),
+        displayName: employeeDisplayName(employee),
         firstName: employee.firstName,
         lastName: employee.lastName,
         preferredName: employee.preferredName,
@@ -624,54 +628,14 @@ export class RosterService {
     };
   }
 
-  private sortByPrimaryDepartment<
-    T extends {
-      displayOrder: number;
-      firstName: string;
-      primaryDepartment: { displayOrder: number; name: string } | null;
-    }
-  >(employees: T[]) {
-    return employees.sort((left, right) => {
-      const departmentOrder = (left.primaryDepartment?.displayOrder ?? Number.MAX_SAFE_INTEGER) - (right.primaryDepartment?.displayOrder ?? Number.MAX_SAFE_INTEGER);
-      if (departmentOrder !== 0) {
-        return departmentOrder;
-      }
-
-      const departmentName = (left.primaryDepartment?.name ?? "").localeCompare(right.primaryDepartment?.name ?? "");
-      if (departmentName !== 0) {
-        return departmentName;
-      }
-
-      if (left.displayOrder !== right.displayOrder) {
-        return left.displayOrder - right.displayOrder;
-      }
-
-      return left.firstName.localeCompare(right.firstName);
-    });
-  }
-
-  private parseDate(date: string, timezone: string, field: string) {
-    const parsed = DateTime.fromISO(date, { zone: timezone }).startOf("day");
-
-    if (!parsed.isValid) {
-      throw this.validationError(field, "Date must be a valid ISO date.");
-    }
-
-    return {
-      dateTime: parsed,
-      dateKey: parsed.toISODate() ?? date,
-      date: this.dateFromKey(parsed.toISODate() ?? date)
-    };
-  }
-
   private weekStartDate(date: string, timezone: string, weekStartDay: number) {
     if (!date) {
-      throw this.validationError("startDate", "Start date is required.");
+      throw validationError("startDate", "Start date is required.");
     }
 
     const parsed = DateTime.fromISO(date, { zone: timezone }).startOf("day");
     if (!parsed.isValid) {
-      throw this.validationError("startDate", "Start date must be a valid ISO date.");
+      throw validationError("startDate", "Start date must be a valid ISO date.");
     }
 
     const daysFromStart = (parsed.weekday - weekStartDay + 7) % 7;
@@ -680,23 +644,23 @@ export class RosterService {
 
   private inclusiveDateRange(fromDate: string, toDate: string, timezone: string) {
     if (!fromDate) {
-      throw this.validationError("fromDate", "From date is required.");
+      throw validationError("fromDate", "From date is required.");
     }
     if (!toDate) {
-      throw this.validationError("toDate", "To date is required.");
+      throw validationError("toDate", "To date is required.");
     }
 
     const from = DateTime.fromISO(fromDate, { zone: timezone }).startOf("day");
     const to = DateTime.fromISO(toDate, { zone: timezone }).startOf("day");
 
     if (!from.isValid) {
-      throw this.validationError("fromDate", "From date must be a valid ISO date.");
+      throw validationError("fromDate", "From date must be a valid ISO date.");
     }
     if (!to.isValid) {
-      throw this.validationError("toDate", "To date must be a valid ISO date.");
+      throw validationError("toDate", "To date must be a valid ISO date.");
     }
     if (to < from) {
-      throw this.validationError("toDate", "To date must be the same as or later than from date.");
+      throw validationError("toDate", "To date must be the same as or later than from date.");
     }
 
     return {
@@ -719,18 +683,18 @@ export class RosterService {
     const end = DateTime.fromISO(targetEndDate, { zone: timezone }).startOf("day");
 
     if (!start.isValid) {
-      throw this.validationError("targetStartDate", "Start date must be a valid ISO date.");
+      throw validationError("targetStartDate", "Start date must be a valid ISO date.");
     }
     if (!end.isValid) {
-      throw this.validationError("targetEndDate", "End date must be a valid ISO date.");
+      throw validationError("targetEndDate", "End date must be a valid ISO date.");
     }
     if (end < start) {
-      throw this.validationError("targetEndDate", "End date must be the same as or later than start date.");
+      throw validationError("targetEndDate", "End date must be the same as or later than start date.");
     }
 
     const dayCount = Math.floor(end.diff(start, "days").days) + 1;
     if (dayCount > MAX_WEEKLY_CELL_COPY_DAYS) {
-      throw this.validationError("targetEndDate", `Copy range cannot be longer than ${MAX_WEEKLY_CELL_COPY_DAYS} days.`);
+      throw validationError("targetEndDate", `Copy range cannot be longer than ${MAX_WEEKLY_CELL_COPY_DAYS} days.`);
     }
 
     return Array.from({ length: dayCount }, (_item, index) => start.plus({ days: index }).toISODate() ?? targetStartDate);
@@ -740,54 +704,11 @@ export class RosterService {
     const unique = new Map<string, { employeeId: string; date: string }>();
 
     for (const cell of cells) {
-      const date = this.parseDate(cell.date, timezone, "date").dateKey;
+      const date = parseRosterDate(cell.date, timezone, "date").dateKey;
       unique.set(`${cell.employeeId}-${date}`, { employeeId: cell.employeeId, date });
     }
 
     return Array.from(unique.values());
-  }
-
-  private assertManagerCanEditTargetDates(currentUser: AuthenticatedUser, targetDates: string[], timezone: string) {
-    if (currentUser.role !== UserRole.ROSTER_MANAGER) {
-      return;
-    }
-
-    const today = DateTime.now().setZone(timezone).startOf("day");
-    const firstPastDate = targetDates.find((targetDate) => DateTime.fromISO(targetDate, { zone: timezone }).startOf("day") < today);
-
-    if (!firstPastDate) {
-      return;
-    }
-
-    throw new ForbiddenException({
-      error: "PAST_ROSTER_LOCKED",
-      message: "Roster managers cannot edit past roster days. Ask an admin to change previous dates.",
-      fields: {
-        targetStartDate: `${firstPastDate} is a past roster day.`
-      }
-    });
-  }
-
-  private async ensureActiveEmployee(organisationId: string, employeeId: string) {
-    const employee = await this.prisma.employee.findFirst({
-      where: { id: employeeId, organisationId, isActive: true, deletedAt: null },
-      select: { id: true }
-    });
-
-    if (!employee) {
-      throw this.validationError("employeeId", "Employee must be active and belong to the current organisation.");
-    }
-  }
-
-  private async ensureActiveDepartment(organisationId: string, departmentId: string) {
-    const department = await this.prisma.department.findFirst({
-      where: { id: departmentId, organisationId, isActive: true, deletedAt: null },
-      select: { id: true }
-    });
-
-    if (!department) {
-      throw this.validationError("departmentId", "Department must be active and belong to the current organisation.");
-    }
   }
 
   private async findExistingWeeklyCellData(organisationId: string, employeeId: string, dates: string[], timezone: string) {
@@ -795,18 +716,18 @@ export class RosterService {
       where: {
         organisationId,
         employeeId,
-        date: { in: dates.map((date) => this.dateFromKey(date)) }
+        date: { in: dates.map((date) => dateKeyToUtcDate(date)) }
       },
       select: {
         date: true,
         type: true
       }
     });
-    const markersByDate = new Map(markerRows.map((marker) => [DateTime.fromJSDate(marker.date, { zone: "utc" }).toISODate() ?? "", marker.type]));
+    const markersByDate = new Map(markerRows.map((marker) => [utcDateToDateKey(marker.date), marker.type]));
     const cells = await Promise.all(
       dates.map(async (date) => {
         const shiftCount = await this.prisma.shift.count({
-          where: this.scheduledShiftWhereForDate(organisationId, employeeId, date, timezone)
+          where: scheduledShiftsStartingOnDateWhere(organisationId, employeeId, date, timezone)
         });
 
         return {
@@ -832,7 +753,7 @@ export class RosterService {
       where: {
         organisationId,
         employeeId,
-        date: { in: dates.map((date) => this.dateFromKey(date)) }
+        date: { in: dates.map((date) => dateKeyToUtcDate(date)) }
       },
       select: { id: true }
     });
@@ -850,7 +771,7 @@ export class RosterService {
     const cancelledShiftIds: string[] = [];
     for (const date of dates) {
       const shiftsToCancel = await tx.shift.findMany({
-        where: this.scheduledShiftWhereForDate(organisationId, employeeId, date, timezone),
+        where: scheduledShiftsStartingOnDateWhere(organisationId, employeeId, date, timezone),
         select: { id: true }
       });
       const shiftIds = shiftsToCancel.map((shift) => shift.id);
@@ -875,17 +796,6 @@ export class RosterService {
     return { removedMarkerIds, cancelledShiftIds };
   }
 
-  private scheduledShiftWhereForDate(organisationId: string, employeeId: string, date: string, timezone: string): Prisma.ShiftWhereInput {
-    const range = buildRosterRange(date, timezone, 1);
-    return {
-      organisationId,
-      employeeId,
-      deletedAt: null,
-      status: ShiftStatus.SCHEDULED,
-      startAt: { gte: range.rangeStart, lt: range.rangeEnd }
-    };
-  }
-
   private ruleInterval(date: string, startTime: string, endTime: string, timezone: string) {
     const start = DateTime.fromISO(`${date}T${startTime}`, { zone: timezone });
     const end =
@@ -899,7 +809,21 @@ export class RosterService {
     };
   }
 
-  private minimumCoverage(shifts: ValidationShift[], startAt: Date, endAt: Date) {
+  private shiftsCoveringInterval(shifts: ValidationShift[], departmentId: string, startAt: Date, endAt: Date): ValidationCoverageShift[] {
+    const startMs = startAt.getTime();
+    const endMs = endAt.getTime();
+
+    return shifts
+      .filter((shift) => shift.departmentId === departmentId && shift.startAt < endAt && shift.endAt > startAt)
+      .map((shift) => ({
+        employeeId: shift.employeeId,
+        startAt: new Date(Math.max(startMs, shift.startAt.getTime())),
+        endAt: new Date(Math.min(endMs, shift.endAt.getTime()))
+      }))
+      .filter((shift) => shift.startAt < shift.endAt);
+  }
+
+  private minimumCoverage(shifts: ValidationCoverageShift[], startAt: Date, endAt: Date) {
     const startMs = startAt.getTime();
     const endMs = endAt.getTime();
     const points = Array.from(
@@ -944,21 +868,6 @@ export class RosterService {
 
   private localTimeLabel(date: Date, timezone: string) {
     return DateTime.fromJSDate(date).setZone(timezone).toFormat("HH:mm");
-  }
-
-  private markerDatesForRange(rangeStart: Date, rangeEnd: Date, timezone: string) {
-    const firstDay = DateTime.fromJSDate(rangeStart).setZone(timezone).startOf("day");
-    const lastDay = DateTime.fromJSDate(rangeEnd).setZone(timezone).minus({ millisecond: 1 }).startOf("day");
-    const dates: string[] = [];
-
-    for (let cursor = firstDay; cursor <= lastDay; cursor = cursor.plus({ days: 1 })) {
-      const date = cursor.toISODate();
-      if (date) {
-        dates.push(date);
-      }
-    }
-
-    return dates;
   }
 
   private findOverlaps(organisationId: string, employeeId: string, startAt: Date, endAt: Date) {
@@ -1042,7 +951,7 @@ export class RosterService {
   }
 
   private dayMarkerForResponse(marker: RosterDayMarker, timezone: string) {
-    const date = DateTime.fromJSDate(marker.date, { zone: "utc" }).toISODate() ?? "";
+    const date = utcDateToDateKey(marker.date);
     const start = DateTime.fromISO(date, { zone: timezone }).startOf("day");
 
     return {
@@ -1056,17 +965,4 @@ export class RosterService {
     };
   }
 
-  private dateFromKey(date: string) {
-    return DateTime.fromISO(date, { zone: "utc" }).startOf("day").toJSDate();
-  }
-
-  private validationError(field: string, message: string) {
-    return new BadRequestException({
-      error: "VALIDATION_ERROR",
-      message: "The request contains invalid information.",
-      fields: {
-        [field]: message
-      }
-    });
-  }
 }

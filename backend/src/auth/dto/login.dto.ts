@@ -2,6 +2,11 @@ import { ApiProperty } from "@nestjs/swagger";
 import { IsOptional, IsString, MinLength } from "class-validator";
 
 export class LoginDto {
+  @ApiProperty({ example: "0001" })
+  @IsOptional()
+  @IsString()
+  orgCode?: string;
+
   @ApiProperty({ example: "admin@example.com" })
   @IsOptional()
   @IsString()

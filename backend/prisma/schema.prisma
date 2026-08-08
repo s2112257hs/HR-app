@@ -26,6 +26,7 @@ enum DayMarkerType {
 
 model Organisation {
   id          String       @id @default(uuid()) @db.Uuid
+  code        String       @unique @db.VarChar(4)
   name        String       @db.VarChar(150)
   timezone    String       @db.VarChar(100)
   rdoTrackingStartDate DateTime @default(dbgenerated("CURRENT_DATE")) @map("rdo_tracking_start_date") @db.Date
@@ -38,6 +39,7 @@ model Organisation {
   validationRules ValidationRule[]
   rosterLock  RosterLock?
   auditLogs   AuditLog[]
+  memberships UserMembership[]
   createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -53,6 +55,7 @@ model User {
   email          String       @db.VarChar(255)
   passwordHash   String       @map("password_hash") @db.VarChar(255)
   role           UserRole
+  isSuperAdmin   Boolean      @default(false) @map("is_super_admin")
   isActive       Boolean      @default(true) @map("is_active")
   lastLoginAt    DateTime?    @map("last_login_at") @db.Timestamptz(6)
   createdShifts  Shift[]      @relation("CreatedShifts")
@@ -61,12 +64,28 @@ model User {
   updatedDayMarkers DayMarker[] @relation("UpdatedDayMarkers")
   auditLogs      AuditLog[]
   rosterLocks    RosterLock[] @relation("RosterLockUser")
+  memberships    UserMembership[]
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([organisationId, email])
   @@unique([organisationId, username])
   @@map("users")
+}
+
+model UserMembership {
+  id             String       @id @default(uuid()) @db.Uuid
+  userId         String       @map("user_id") @db.Uuid
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organisationId String       @map("organisation_id") @db.Uuid
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  role           UserRole
+  isActive       Boolean      @default(true) @map("is_active")
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([userId, organisationId])
+  @@map("user_memberships")
 }
 
 model Employee {
