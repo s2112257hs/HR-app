@@ -233,6 +233,18 @@ button {
   border-color: #f3b8c0;
 }
 
+.icon-button.muted-danger {
+  color: #7c2d12;
+  background: #fffbeb;
+  border-color: #fcd34d;
+}
+
+.hard-delete-button {
+  width: auto;
+  min-width: 92px;
+  padding: 0 10px;
+}
+
 .icon-button {
   width: 36px;
   padding: 0;

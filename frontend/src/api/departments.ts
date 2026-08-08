@@ -39,3 +39,7 @@ export function deactivateDepartment(id: string) {
 export function restoreDepartment(id: string) {
   return apiRequest<Department>(`/departments/${id}/restore`, { method: "PATCH" });
 }
+
+export function hardDeleteDepartment(id: string) {
+  return apiRequest(`/super-admin/departments/${id}`, { method: "DELETE" });
+}

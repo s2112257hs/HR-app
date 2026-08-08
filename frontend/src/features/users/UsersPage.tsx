@@ -1,11 +1,11 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Edit3, Eye, EyeOff, RotateCcw, UserMinus } from "lucide-react";
+import { AlertTriangle, Edit3, Eye, EyeOff, RotateCcw, Trash2, UserMinus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { ApiError } from "../../api/client";
-import { createUser, deactivateUser, fetchUsers, restoreUser, updateUser, UserPayload } from "../../api/users";
+import { createUser, deactivateUser, fetchUsers, hardDeleteUser, restoreUser, updateUser, UserPayload } from "../../api/users";
 import { User, UserRole } from "../../types/api";
 import { friendlyApiFieldErrors, friendlyApiMessage } from "../../utilities/formErrors";
 import { useAuth } from "../authentication/AuthProvider";
@@ -39,6 +39,8 @@ export function UsersPage() {
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
   const [editing, setEditing] = useState<User | null>(null);
+  const [confirmingHardDelete, setConfirmingHardDelete] = useState<User | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const usersQuery = useQuery({
     queryKey: ["users"],
@@ -108,6 +110,18 @@ export function UsersPage() {
     mutationFn: restoreUser,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] })
   });
+  const hardDeleteMutation = useMutation({
+    mutationFn: hardDeleteUser,
+    onSuccess: async () => {
+      setConfirmingHardDelete(null);
+      setDeleteError(null);
+      await queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+    onError: (error) => {
+      setDeleteError(friendlyApiMessage(error, "User could not be permanently deleted."));
+    }
+  });
+  const isSuperAdmin = Boolean(currentUser?.isSuperAdmin);
 
   return (
     <section className="page-stack">
@@ -175,6 +189,7 @@ export function UsersPage() {
           </button>
         </div>
       </form>
+      {deleteError && <div className="form-error">{deleteError}</div>}
       <div className="table-panel">
         <table>
           <thead>
@@ -202,7 +217,7 @@ export function UsersPage() {
                     </button>
                     {user.isActive ? (
                       <button
-                        className="icon-button danger"
+                        className="icon-button muted-danger"
                         type="button"
                         onClick={() => deactivateMutation.mutate(user.id)}
                         aria-label="Deactivate user"
@@ -223,6 +238,18 @@ export function UsersPage() {
                         <RotateCcw size={16} aria-hidden="true" />
                       </button>
                     )}
+                    {isSuperAdmin && (
+                      <button
+                        className="icon-button danger hard-delete-button"
+                        type="button"
+                        onClick={() => setConfirmingHardDelete(user)}
+                        aria-label="Permanently delete user"
+                        title="Permanently delete from database"
+                      >
+                        <Trash2 size={15} aria-hidden="true" />
+                        DB
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -230,6 +257,27 @@ export function UsersPage() {
           </tbody>
         </table>
       </div>
+      {confirmingHardDelete && (
+        <div className="modal-backdrop" role="presentation">
+          <div className="dialog-panel warning-dialog" role="dialog" aria-modal="true" aria-labelledby="hard-delete-user-title">
+            <div className="dialog-heading">
+              <AlertTriangle size={22} aria-hidden="true" />
+              <h2 id="hard-delete-user-title">Delete user from database?</h2>
+            </div>
+            <p className="dialog-note">
+              {confirmingHardDelete.name} ({confirmingHardDelete.email}) will be permanently deleted. Their property access will be removed. This cannot be undone.
+            </p>
+            <div className="dialog-actions">
+              <button className="secondary-button" type="button" onClick={() => setConfirmingHardDelete(null)}>
+                Cancel
+              </button>
+              <button className="danger-button" type="button" onClick={() => hardDeleteMutation.mutate(confirmingHardDelete.id)} disabled={hardDeleteMutation.isPending}>
+                {hardDeleteMutation.isPending ? "Deleting..." : "Delete from DB"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

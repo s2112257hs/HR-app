@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../common/decorators/current-user.decorator";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
@@ -46,6 +46,30 @@ export class SuperAdminController {
   @ApiOperation({ summary: "Update an organisation 4-digit code (Super Admin)" })
   updateOrganisationCode(@Param("id") id: string, @Body() dto: UpdateOrganisationCodeDto) {
     return this.superAdminService.updateOrganisationCode(id, dto);
+  }
+
+  @Delete("organisations/:id")
+  @ApiOperation({ summary: "Permanently delete an organisation and its tenant data (Super Admin)" })
+  deleteOrganisation(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.superAdminService.deleteOrganisation(user, id);
+  }
+
+  @Delete("departments/:id")
+  @ApiOperation({ summary: "Permanently delete a department and dependent roster data (Super Admin)" })
+  deleteDepartment(@Param("id") id: string) {
+    return this.superAdminService.deleteDepartment(id);
+  }
+
+  @Delete("employees/:id")
+  @ApiOperation({ summary: "Permanently delete an employee and dependent roster data (Super Admin)" })
+  deleteEmployee(@Param("id") id: string) {
+    return this.superAdminService.deleteEmployee(id);
+  }
+
+  @Delete("users/:id")
+  @ApiOperation({ summary: "Permanently delete a tenant user (Super Admin)" })
+  deleteUser(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.superAdminService.deleteUser(user, id);
   }
 
   @Post("memberships")

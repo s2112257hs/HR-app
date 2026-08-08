@@ -1,11 +1,11 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Edit3, RotateCcw, Trash2 } from "lucide-react";
+import { AlertTriangle, Ban, Edit3, RotateCcw, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { ApiError } from "../../api/client";
-import { createDepartment, deactivateDepartment, DepartmentPayload, fetchDepartments, restoreDepartment, updateDepartment } from "../../api/departments";
+import { createDepartment, deactivateDepartment, DepartmentPayload, fetchDepartments, hardDeleteDepartment, restoreDepartment, updateDepartment } from "../../api/departments";
 import { Department } from "../../types/api";
 import { friendlyApiFieldErrors, friendlyApiMessage } from "../../utilities/formErrors";
 import { useAuth } from "../authentication/AuthProvider";
@@ -44,6 +44,7 @@ export function DepartmentsPage() {
   const [editing, setEditing] = useState<Department | null>(null);
   const [showColourPalette, setShowColourPalette] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState<Department | null>(null);
+  const [confirmingHardDelete, setConfirmingHardDelete] = useState<Department | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const departmentsQuery = useQuery({
     queryKey: ["departments", status],
@@ -55,7 +56,8 @@ export function DepartmentsPage() {
   });
   const colour = form.watch("colourHex");
   const normalizedColour = colour?.toUpperCase() ?? "#2563EB";
-  const canEditExisting = user?.role === "ADMIN";
+  const isSuperAdmin = Boolean(user?.isSuperAdmin);
+  const canEditExisting = user?.role === "ADMIN" || isSuperAdmin;
 
   useEffect(() => {
     form.reset(
@@ -111,6 +113,21 @@ export function DepartmentsPage() {
   const restoreMutation = useMutation({
     mutationFn: restoreDepartment,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["departments"] })
+  });
+  const hardDeleteMutation = useMutation({
+    mutationFn: hardDeleteDepartment,
+    onSuccess: async () => {
+      setConfirmingHardDelete(null);
+      setDeleteError(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["departments"] }),
+        queryClient.invalidateQueries({ queryKey: ["employees"] }),
+        queryClient.invalidateQueries({ queryKey: ["roster"] })
+      ]);
+    },
+    onError: (error) => {
+      setDeleteError(friendlyApiMessage(error, "Department could not be permanently deleted."));
+    }
   });
 
   return (
@@ -254,13 +271,13 @@ export function DepartmentsPage() {
                       </button>
                       {department.isActive ? (
                         <button
-                          className="icon-button danger"
+                          className="icon-button muted-danger"
                           type="button"
                           onClick={() => setConfirmingDelete(department)}
                           aria-label="Deactivate department"
                           title="Deactivate"
                         >
-                          <Trash2 size={16} aria-hidden="true" />
+                          <Ban size={16} aria-hidden="true" />
                         </button>
                       ) : (
                         <button
@@ -272,6 +289,18 @@ export function DepartmentsPage() {
                           disabled={restoreMutation.isPending}
                         >
                           <RotateCcw size={16} aria-hidden="true" />
+                        </button>
+                      )}
+                      {isSuperAdmin && (
+                        <button
+                          className="icon-button danger hard-delete-button"
+                          type="button"
+                          onClick={() => setConfirmingHardDelete(department)}
+                          aria-label="Permanently delete department"
+                          title="Permanently delete from database"
+                        >
+                          <Trash2 size={15} aria-hidden="true" />
+                          DB
                         </button>
                       )}
                     </div>
@@ -298,6 +327,27 @@ export function DepartmentsPage() {
               </button>
               <button className="danger-button" type="button" onClick={() => deactivateMutation.mutate(confirmingDelete.id)} disabled={deactivateMutation.isPending}>
                 {deactivateMutation.isPending ? "Deactivating..." : "Deactivate"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {confirmingHardDelete && (
+        <div className="modal-backdrop" role="presentation">
+          <div className="dialog-panel warning-dialog" role="dialog" aria-modal="true" aria-labelledby="hard-delete-department-title">
+            <div className="dialog-heading">
+              <AlertTriangle size={22} aria-hidden="true" />
+              <h2 id="hard-delete-department-title">Delete department from database?</h2>
+            </div>
+            <p className="dialog-note">
+              {confirmingHardDelete.name} will be permanently deleted. Shifts and validation rules tied to this department will also be deleted. This cannot be undone.
+            </p>
+            <div className="dialog-actions">
+              <button className="secondary-button" type="button" onClick={() => setConfirmingHardDelete(null)}>
+                Cancel
+              </button>
+              <button className="danger-button" type="button" onClick={() => hardDeleteMutation.mutate(confirmingHardDelete.id)} disabled={hardDeleteMutation.isPending}>
+                {hardDeleteMutation.isPending ? "Deleting..." : "Delete from DB"}
               </button>
             </div>
           </div>

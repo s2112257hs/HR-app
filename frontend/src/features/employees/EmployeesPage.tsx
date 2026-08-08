@@ -1,12 +1,12 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Edit3, RotateCcw, Search, UserMinus } from "lucide-react";
+import { AlertTriangle, Trash2, Edit3, RotateCcw, Search, UserMinus } from "lucide-react";
 import { type CSSProperties, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { ApiError } from "../../api/client";
 import { fetchDepartments } from "../../api/departments";
-import { createEmployee, deactivateEmployee, EmployeePayload, fetchEmployees, restoreEmployee, updateEmployee } from "../../api/employees";
+import { createEmployee, deactivateEmployee, EmployeePayload, fetchEmployees, hardDeleteEmployee, restoreEmployee, updateEmployee } from "../../api/employees";
 import { Employee } from "../../types/api";
 import { friendlyApiFieldErrors, friendlyApiMessage } from "../../utilities/formErrors";
 import { useAuth } from "../authentication/AuthProvider";
@@ -46,6 +46,7 @@ export function EmployeesPage() {
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<Employee | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState<Employee | null>(null);
+  const [confirmingHardDelete, setConfirmingHardDelete] = useState<Employee | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const employeesQuery = useQuery({
     queryKey: ["employees", status, search],
@@ -59,7 +60,8 @@ export function EmployeesPage() {
     resolver: zodResolver(employeeSchema),
     defaultValues: blankForm
   });
-  const canEditExisting = user?.role === "ADMIN";
+  const isSuperAdmin = Boolean(user?.isSuperAdmin);
+  const canEditExisting = user?.role === "ADMIN" || isSuperAdmin;
 
   useEffect(() => {
     if (!editing || !canEditExisting) {
@@ -118,6 +120,20 @@ export function EmployeesPage() {
   const restoreMutation = useMutation({
     mutationFn: restoreEmployee,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["employees"] })
+  });
+  const hardDeleteMutation = useMutation({
+    mutationFn: hardDeleteEmployee,
+    onSuccess: async () => {
+      setConfirmingHardDelete(null);
+      setDeleteError(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["employees"] }),
+        queryClient.invalidateQueries({ queryKey: ["roster"] })
+      ]);
+    },
+    onError: (error) => {
+      setDeleteError(friendlyApiMessage(error, "Employee could not be permanently deleted."));
+    }
   });
 
   return (
@@ -255,7 +271,7 @@ export function EmployeesPage() {
                       </button>
                       {employee.isActive ? (
                         <button
-                          className="icon-button danger"
+                          className="icon-button muted-danger"
                           type="button"
                           onClick={() => setConfirmingDelete(employee)}
                           aria-label="Deactivate employee"
@@ -273,6 +289,18 @@ export function EmployeesPage() {
                           disabled={restoreMutation.isPending}
                         >
                           <RotateCcw size={16} aria-hidden="true" />
+                        </button>
+                      )}
+                      {isSuperAdmin && (
+                        <button
+                          className="icon-button danger hard-delete-button"
+                          type="button"
+                          onClick={() => setConfirmingHardDelete(employee)}
+                          aria-label="Permanently delete employee"
+                          title="Permanently delete from database"
+                        >
+                          <Trash2 size={15} aria-hidden="true" />
+                          DB
                         </button>
                       )}
                     </div>
@@ -304,8 +332,33 @@ export function EmployeesPage() {
           </div>
         </div>
       )}
+      {confirmingHardDelete && (
+        <div className="modal-backdrop" role="presentation">
+          <div className="dialog-panel warning-dialog" role="dialog" aria-modal="true" aria-labelledby="hard-delete-employee-title">
+            <div className="dialog-heading">
+              <AlertTriangle size={22} aria-hidden="true" />
+              <h2 id="hard-delete-employee-title">Delete employee from database?</h2>
+            </div>
+            <p className="dialog-note">
+              {employeeDisplayName(confirmingHardDelete)} will be permanently deleted. This also deletes their shifts and day markers. This cannot be undone.
+            </p>
+            <div className="dialog-actions">
+              <button className="secondary-button" type="button" onClick={() => setConfirmingHardDelete(null)}>
+                Cancel
+              </button>
+              <button className="danger-button" type="button" onClick={() => hardDeleteMutation.mutate(confirmingHardDelete.id)} disabled={hardDeleteMutation.isPending}>
+                {hardDeleteMutation.isPending ? "Deleting..." : "Delete from DB"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
+}
+
+function employeeDisplayName(employee: Employee) {
+  return employee.preferredName || [employee.firstName, employee.lastName].filter(Boolean).join(" ");
 }
 
 function cleanEmployeePayload(values: EmployeeForm): EmployeePayload {

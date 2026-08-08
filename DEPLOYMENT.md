@@ -73,10 +73,6 @@ DATABASE_URL=<your Postgres connection string>
 FRONTEND_ORIGIN=https://<your-domain-or-vm-hostname>
 JWT_ACCESS_SECRET=<generate a long random string>
 JWT_REFRESH_SECRET=<generate another long random string>
-SEED_ADMIN_EMAIL=<your admin email>
-SEED_ADMIN_PASSWORD=<a strong password>
-SEED_ORGANISATION_NAME=<your organisation name>
-SEED_TIMEZONE=<IANA timezone, for example Asia/Tashkent>
 PORT=3000
 NODE_ENV=production
 ```
@@ -85,10 +81,17 @@ NODE_ENV=production
 
 ```bash
 npx prisma migrate deploy
-npm run prisma:seed
 ```
 
-10. Run the backend with a process manager such as PM2:
+10. If this is an existing live database, create the super admin against an existing property:
+
+```bash
+SUPERADMIN_ORG_CODE=<existing property code> SUPERADMIN_EMAIL=<your super admin email> SUPERADMIN_USERNAME=<your super admin username> SUPERADMIN_PASSWORD=<a strong password> npm run super-admin:create
+```
+
+This command does not create a property. It fails if `SUPERADMIN_ORG_CODE` does not match an existing property.
+
+11. Run the backend with a process manager such as PM2:
 
 ```bash
 npm install -g pm2
@@ -97,7 +100,7 @@ pm2 save
 pm2 startup
 ```
 
-11. Build the frontend:
+12. Build the frontend:
 
 ```bash
 cd ../frontend
@@ -105,7 +108,7 @@ npm ci
 VITE_API_BASE_URL=https://<your-domain-or-vm-hostname>/api/v1 npm run build
 ```
 
-12. Serve `frontend/dist` with Caddy or Nginx, and reverse-proxy `/api/*` to `http://localhost:3000`.
+13. Serve `frontend/dist` with Caddy or Nginx, and reverse-proxy `/api/*` to `http://localhost:3000`.
 
 ## 3B. Deploy Backend On Koyeb
 
@@ -120,7 +123,7 @@ backend
 4. Set the build command:
 
 ```text
-npm ci --include=dev && npx prisma generate && npm run build
+npm ci --include=dev && npx prisma generate && npm run build && npx prisma migrate deploy
 ```
 
 5. Set the run command:
@@ -136,20 +139,16 @@ DATABASE_URL=<your Neon connection string>
 FRONTEND_ORIGIN=<your Vercel frontend URL>
 JWT_ACCESS_SECRET=<generate a long random string>
 JWT_REFRESH_SECRET=<generate another long random string>
-SEED_ADMIN_EMAIL=<your admin email>
-SEED_ADMIN_PASSWORD=<a strong password>
-SEED_ORGANISATION_NAME=<your organisation name>
-SEED_TIMEZONE=<IANA timezone, for example Asia/Tashkent>
+NODE_ENV=production
 ```
 
-7. After the first successful deploy, run these once from a Koyeb console or temporary one-off command:
+7. To add a super admin to an existing live database, run this once from a Koyeb console or temporary one-off command:
 
 ```bash
-npx prisma migrate deploy
-npm run prisma:seed
+SUPERADMIN_ORG_CODE=<existing property code> SUPERADMIN_EMAIL=<your super admin email> SUPERADMIN_USERNAME=<your super admin username> SUPERADMIN_PASSWORD=<a strong password> npm run super-admin:create
 ```
 
-If Koyeb does not provide an easy one-off command in your account, run those commands locally against the Neon `DATABASE_URL`.
+This command does not create a property. It fails if `SUPERADMIN_ORG_CODE` does not match an existing property.
 
 ## 3C. Deploy Frontend On Vercel
 
@@ -186,8 +185,8 @@ VITE_API_BASE_URL=https://<your-koyeb-backend-domain>/api/v1
 After both services deploy:
 
 1. Open the frontend URL.
-2. Log in with `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD`.
-3. Create real users from the Users page.
+2. Log in with `SUPERADMIN_EMAIL` and `SUPERADMIN_PASSWORD`.
+3. Create properties, admins, and users from the Super Admin page.
 
 ## 5. If The Frontend Cannot Log In
 

@@ -1,4 +1,4 @@
-import { Plus, ShieldCheck, Edit2, UserPlus, Key, UserCog, Search, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Edit2, Key, Plus, Search, ShieldCheck, Trash2, UserCog, UserPlus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { apiRequest } from "../../api/client";
 import { SuperAdminOrganisation, SuperAdminUser, User, UserRole } from "../../types/api";
@@ -6,7 +6,7 @@ import { friendlyApiMessage } from "../../utilities/formErrors";
 import { useAuth } from "../authentication/AuthProvider";
 
 export function SuperAdminPage() {
-  const { user, updateCurrentUser } = useAuth();
+  const { user, updateCurrentUser, refreshOrganisations } = useAuth();
   const [organisations, setOrganisations] = useState<SuperAdminOrganisation[]>([]);
   const [users, setUsers] = useState<SuperAdminUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,6 +39,10 @@ export function SuperAdminPage() {
   const [newCode, setNewCode] = useState("");
   const [codeSubmitting, setCodeSubmitting] = useState(false);
   const [codeError, setCodeError] = useState<string | null>(null);
+  const [deletingOrganisation, setDeletingOrganisation] = useState<SuperAdminOrganisation | null>(null);
+  const [deletingUser, setDeletingUser] = useState<SuperAdminUser | null>(null);
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Grant Membership state
   const [showMembershipModal, setShowMembershipModal] = useState(false);
@@ -163,6 +167,7 @@ export function SuperAdminPage() {
         timezone: "Indian/Maldives"
       });
       await loadData();
+      await refreshOrganisations();
     } catch (err) {
       setCreateError(friendlyApiMessage(err, "Failed to create organisation."));
     } finally {
@@ -183,10 +188,44 @@ export function SuperAdminPage() {
       setEditingOrg(null);
       setNewCode("");
       await loadData();
+      await refreshOrganisations();
     } catch (err) {
       setCodeError(friendlyApiMessage(err, "Failed to update code. Must be a unique 4-digit number (0001-9999)."));
     } finally {
       setCodeSubmitting(false);
+    }
+  };
+
+  const handleDeleteOrganisation = async () => {
+    if (!deletingOrganisation) return;
+
+    try {
+      setDeleteSubmitting(true);
+      setDeleteError(null);
+      await apiRequest(`/super-admin/organisations/${deletingOrganisation.id}`, { method: "DELETE" });
+      setDeletingOrganisation(null);
+      await loadData();
+      await refreshOrganisations();
+    } catch (err) {
+      setDeleteError(friendlyApiMessage(err, "Failed to permanently delete property."));
+    } finally {
+      setDeleteSubmitting(false);
+    }
+  };
+
+  const handleDeleteUser = async () => {
+    if (!deletingUser) return;
+
+    try {
+      setDeleteSubmitting(true);
+      setDeleteError(null);
+      await apiRequest(`/super-admin/users/${deletingUser.id}`, { method: "DELETE" });
+      setDeletingUser(null);
+      await loadData();
+    } catch (err) {
+      setDeleteError(friendlyApiMessage(err, "Failed to permanently delete user."));
+    } finally {
+      setDeleteSubmitting(false);
     }
   };
 
@@ -386,19 +425,41 @@ export function SuperAdminPage() {
                   <td style={{ padding: "0.75rem 1rem" }}>{org.stats.employeesCount}</td>
                   <td style={{ padding: "0.75rem 1rem" }}>{org.stats.shiftsCount}</td>
                   <td style={{ padding: "0.75rem 1rem" }}>
-                    <button
-                      type="button"
-                      className="icon-button"
-                      onClick={() => {
-                        setEditingOrg(org);
-                        setNewCode(org.code);
-                        setCodeError(null);
-                      }}
-                      title="Edit 4-digit code"
-                      style={{ padding: "0.35rem 0.6rem", fontSize: "0.8rem", display: "inline-flex", alignItems: "center", gap: "0.3rem", cursor: "pointer" }}
-                    >
-                      <Edit2 size={14} /> Edit Code
-                    </button>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
+                      <button
+                        type="button"
+                        className="icon-button"
+                        onClick={() => {
+                          setEditingOrg(org);
+                          setNewCode(org.code);
+                          setCodeError(null);
+                        }}
+                        title="Edit 4-digit code"
+                        style={{ padding: "0.35rem 0.6rem", fontSize: "0.8rem", display: "inline-flex", alignItems: "center", gap: "0.3rem", cursor: "pointer" }}
+                      >
+                        <Edit2 size={14} /> Edit Code
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-button danger hard-delete-button"
+                        onClick={() => {
+                          setDeletingOrganisation(org);
+                          setDeleteError(null);
+                        }}
+                        disabled={org.id === user?.organisationId}
+                        title={org.id === user?.organisationId ? "Switch to another property before deleting this one" : "Permanently delete property"}
+                        style={{
+                          padding: "0.35rem 0.6rem",
+                          fontSize: "0.8rem",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "0.3rem",
+                          cursor: org.id === user?.organisationId ? "not-allowed" : "pointer"
+                        }}
+                      >
+                        <Trash2 size={14} /> DB
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -417,6 +478,7 @@ export function SuperAdminPage() {
                 <th style={{ padding: "0.75rem 1rem" }}>Primary Property</th>
                 <th style={{ padding: "0.75rem 1rem" }}>Property Access</th>
                 <th style={{ padding: "0.75rem 1rem" }}>Status</th>
+                <th style={{ padding: "0.75rem 1rem" }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -447,10 +509,70 @@ export function SuperAdminPage() {
                     </div>
                   </td>
                   <td style={{ padding: "0.75rem 1rem" }}>{user.isActive ? "Active" : "Inactive"}</td>
+                  <td style={{ padding: "0.75rem 1rem" }}>
+                    <button
+                      type="button"
+                      className="icon-button danger hard-delete-button"
+                      onClick={() => {
+                        setDeletingUser(user);
+                        setDeleteError(null);
+                      }}
+                      title="Permanently delete user"
+                      style={{ padding: "0.35rem 0.6rem", fontSize: "0.8rem", display: "inline-flex", alignItems: "center", gap: "0.3rem", cursor: "pointer" }}
+                    >
+                      <Trash2 size={14} /> DB
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {deletingOrganisation && (
+        <div className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div className="modal-card" style={{ background: "var(--color-bg-surface, #ffffff)", padding: "1.5rem", borderRadius: "0.75rem", maxWidth: "460px", width: "90%" }}>
+            <h2 style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "1.2rem", fontWeight: 700, marginBottom: "0.75rem" }}>
+              <AlertTriangle size={22} />
+              Delete property from database?
+            </h2>
+            <p style={{ fontSize: "0.9rem", color: "var(--color-text-secondary, #6b7280)", marginBottom: "1rem" }}>
+              {propertyLabel(deletingOrganisation)} will be permanently deleted with its users, departments, employees, shifts, markers, validation rules, roster locks, and audit logs. This cannot be undone.
+            </p>
+            {deleteError && <div className="form-error">{deleteError}</div>}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", marginTop: "1rem" }}>
+              <button type="button" className="secondary-button" onClick={() => setDeletingOrganisation(null)}>
+                Cancel
+              </button>
+              <button type="button" className="danger-button" onClick={() => void handleDeleteOrganisation()} disabled={deleteSubmitting}>
+                {deleteSubmitting ? "Deleting..." : "Delete from DB"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deletingUser && (
+        <div className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div className="modal-card" style={{ background: "var(--color-bg-surface, #ffffff)", padding: "1.5rem", borderRadius: "0.75rem", maxWidth: "460px", width: "90%" }}>
+            <h2 style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "1.2rem", fontWeight: 700, marginBottom: "0.75rem" }}>
+              <AlertTriangle size={22} />
+              Delete user from database?
+            </h2>
+            <p style={{ fontSize: "0.9rem", color: "var(--color-text-secondary, #6b7280)", marginBottom: "1rem" }}>
+              {deletingUser.name} ({deletingUser.email}) will be permanently deleted and removed from every property membership. This cannot be undone.
+            </p>
+            {deleteError && <div className="form-error">{deleteError}</div>}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", marginTop: "1rem" }}>
+              <button type="button" className="secondary-button" onClick={() => setDeletingUser(null)}>
+                Cancel
+              </button>
+              <button type="button" className="danger-button" onClick={() => void handleDeleteUser()} disabled={deleteSubmitting}>
+                {deleteSubmitting ? "Deleting..." : "Delete from DB"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -35,3 +35,7 @@ export function deactivateUser(id: string) {
 export function restoreUser(id: string) {
   return apiRequest<User>(`/users/${id}/restore`, { method: "PATCH" });
 }
+
+export function hardDeleteUser(id: string) {
+  return apiRequest(`/super-admin/users/${id}`, { method: "DELETE" });
+}

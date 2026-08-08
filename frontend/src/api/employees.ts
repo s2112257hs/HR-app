@@ -50,3 +50,7 @@ export function deactivateEmployee(id: string) {
 export function restoreEmployee(id: string) {
   return apiRequest<Employee>(`/employees/${id}/restore`, { method: "PATCH" });
 }
+
+export function hardDeleteEmployee(id: string) {
+  return apiRequest(`/super-admin/employees/${id}`, { method: "DELETE" });
+}

@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma, UserRole } from "@prisma/client";
 import { UserProvisioningService } from "../common/services/user-provisioning.service";
+import { AuthenticatedUser } from "../common/types/authenticated-user";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateMembershipDto } from "./dto/create-membership.dto";
 import { CreateOrganisationDto } from "./dto/create-organisation.dto";
@@ -127,22 +128,6 @@ export class SuperAdminService {
           })
         : null;
 
-      // Default departments
-      const defaultDepartments = [
-        { name: "Front Office", shortCode: "FO", colourHex: "#2563EB", displayOrder: 1 },
-        { name: "Restaurant", shortCode: "REST", colourHex: "#D1495B", displayOrder: 2 },
-        { name: "Housekeeping", shortCode: "HK", colourHex: "#0F766E", displayOrder: 3 }
-      ];
-
-      for (const dept of defaultDepartments) {
-        await tx.department.create({
-          data: {
-            organisationId: organisation.id,
-            ...dept
-          }
-        });
-      }
-
       return { organisation, adminUser };
     });
 
@@ -242,6 +227,182 @@ export class SuperAdminService {
     await this.assertNoTargetIdentityConflict(user, organisation);
 
     return this.userProvisioningService.upsertMembershipWithDetails(dto.userId, dto.organisationId, dto.role);
+  }
+
+  async deleteOrganisation(currentUser: AuthenticatedUser, id: string) {
+    const organisation = await this.prisma.organisation.findUnique({
+      where: { id },
+      include: {
+        _count: {
+          select: {
+            users: true,
+            employees: true,
+            departments: true,
+            shifts: true
+          }
+        }
+      }
+    });
+
+    if (!organisation) {
+      throw new NotFoundException("Property not found.");
+    }
+
+    if (organisation.id === currentUser.organisationId) {
+      throw new BadRequestException("Switch to another property before permanently deleting the active property.");
+    }
+
+    const owningSuperAdmin = await this.prisma.user.findFirst({
+      where: { organisationId: organisation.id, isSuperAdmin: true },
+      select: { id: true, email: true }
+    });
+
+    if (owningSuperAdmin) {
+      throw new BadRequestException("This property owns a Super Admin account. Move or recreate the Super Admin under another property before deleting it.");
+    }
+
+    const primaryUsers = await this.prisma.user.findMany({
+      where: { organisationId: organisation.id },
+      select: { id: true }
+    });
+
+    await this.prisma.$transaction(async (tx) => {
+      await this.releaseUserReferencesInTransaction(tx, primaryUsers.map((user) => user.id), currentUser.sub);
+      await tx.organisation.delete({ where: { id: organisation.id } });
+    });
+
+    return {
+      ok: true,
+      deleted: {
+        id: organisation.id,
+        code: organisation.code,
+        name: organisation.name,
+        usersCount: organisation._count.users,
+        employeesCount: organisation._count.employees,
+        departmentsCount: organisation._count.departments,
+        shiftsCount: organisation._count.shifts
+      }
+    };
+  }
+
+  async deleteDepartment(id: string) {
+    const department = await this.prisma.department.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        organisationId: true,
+        name: true,
+        shortCode: true
+      }
+    });
+
+    if (!department) {
+      throw new NotFoundException("Department not found.");
+    }
+
+    const deleted = await this.prisma.$transaction(async (tx) => {
+      const shifts = await tx.shift.deleteMany({ where: { departmentId: department.id } });
+      const validationRules = await tx.validationRule.deleteMany({ where: { departmentId: department.id } });
+      await tx.employee.updateMany({
+        where: { primaryDepartmentId: department.id },
+        data: { primaryDepartmentId: null }
+      });
+      await tx.department.delete({ where: { id: department.id } });
+
+      return { shiftsCount: shifts.count, validationRulesCount: validationRules.count };
+    });
+
+    return {
+      ok: true,
+      deleted: {
+        id: department.id,
+        organisationId: department.organisationId,
+        name: department.name,
+        shortCode: department.shortCode,
+        ...deleted
+      }
+    };
+  }
+
+  async deleteEmployee(id: string) {
+    const employee = await this.prisma.employee.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        organisationId: true,
+        firstName: true,
+        lastName: true,
+        preferredName: true,
+        employeeNumber: true
+      }
+    });
+
+    if (!employee) {
+      throw new NotFoundException("Employee not found.");
+    }
+
+    const deleted = await this.prisma.$transaction(async (tx) => {
+      const shifts = await tx.shift.deleteMany({ where: { employeeId: employee.id } });
+      const dayMarkers = await tx.dayMarker.deleteMany({ where: { employeeId: employee.id } });
+      await tx.employee.delete({ where: { id: employee.id } });
+
+      return { shiftsCount: shifts.count, dayMarkersCount: dayMarkers.count };
+    });
+
+    return {
+      ok: true,
+      deleted: {
+        id: employee.id,
+        organisationId: employee.organisationId,
+        employeeNumber: employee.employeeNumber,
+        name: employee.preferredName || [employee.firstName, employee.lastName].filter(Boolean).join(" "),
+        ...deleted
+      }
+    };
+  }
+
+  async deleteUser(currentUser: AuthenticatedUser, id: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        email: true,
+        isSuperAdmin: true,
+        organisation: {
+          select: { id: true, code: true, name: true }
+        }
+      }
+    });
+
+    if (!user) {
+      throw new NotFoundException("User not found.");
+    }
+
+    if (user.id === currentUser.sub) {
+      throw new BadRequestException("You cannot permanently delete your own signed-in account.");
+    }
+
+    if (user.isSuperAdmin) {
+      throw new BadRequestException("Super Admin accounts cannot be deleted from this screen.");
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await this.releaseUserReferencesInTransaction(tx, [user.id], currentUser.sub);
+      await tx.user.delete({ where: { id: user.id } });
+    });
+
+    return {
+      ok: true,
+      deleted: {
+        id: user.id,
+        name: user.name,
+        username: user.username,
+        email: user.email,
+        primaryOrganisation: user.organisation
+      }
+    };
   }
 
   async updateCredentials(currentUser: { sub: string }, dto: { username?: string; newPassword?: string }) {
@@ -356,6 +517,35 @@ export class SuperAdminService {
       fields: {
         userId: "Choose the existing target-property account, or merge/remove the duplicate account before assigning access."
       }
+    });
+  }
+
+  private async releaseUserReferencesInTransaction(tx: Prisma.TransactionClient, userIds: string[], replacementUserId: string) {
+    if (userIds.length === 0) {
+      return;
+    }
+
+    await tx.rosterLock.deleteMany({
+      where: { lockedByUserId: { in: userIds } }
+    });
+    await tx.shift.updateMany({
+      where: { createdByUserId: { in: userIds } },
+      data: { createdByUserId: replacementUserId }
+    });
+    await tx.shift.updateMany({
+      where: { updatedByUserId: { in: userIds } },
+      data: { updatedByUserId: replacementUserId }
+    });
+    await tx.dayMarker.updateMany({
+      where: { createdByUserId: { in: userIds } },
+      data: { createdByUserId: replacementUserId }
+    });
+    await tx.dayMarker.updateMany({
+      where: { updatedByUserId: { in: userIds } },
+      data: { updatedByUserId: replacementUserId }
+    });
+    await tx.auditLog.deleteMany({
+      where: { userId: { in: userIds } }
     });
   }
 }
