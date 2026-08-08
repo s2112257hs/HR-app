@@ -1,5 +1,14 @@
 import { apiRequest, jsonBody } from "./client";
-import { DayMarkerType, OtSummaryResponse, OverlapCheckResponse, RosterLockResponse, RosterResponse, RosterValidationResponse, Shift } from "../types/api";
+import {
+  AttendanceSummaryResponse,
+  DayMarkerType,
+  OtSummaryResponse,
+  OverlapCheckResponse,
+  RosterLockResponse,
+  RosterResponse,
+  RosterValidationResponse,
+  Shift
+} from "../types/api";
 
 export type ShiftPayload = {
   employeeId: string;
@@ -66,6 +75,11 @@ export function validateWeeklyRoster(startDate: string) {
 export function fetchOtSummary(fromDate: string, toDate: string) {
   const params = new URLSearchParams({ fromDate, toDate });
   return apiRequest<OtSummaryResponse>(`/roster/ot-summary?${params.toString()}`);
+}
+
+export function fetchAttendanceSummary(fromDate: string, toDate: string) {
+  const params = new URLSearchParams({ fromDate, toDate });
+  return apiRequest<AttendanceSummaryResponse>(`/roster/attendance-summary?${params.toString()}`);
 }
 
 export function checkShiftOverlap(payload: {

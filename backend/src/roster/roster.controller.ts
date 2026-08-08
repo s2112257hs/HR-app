@@ -51,6 +51,14 @@ export class RosterController {
     return this.rosterService.overtimeSummary(user.organisationId, fromDate, toDate);
   }
 
+  @Get("attendance-summary")
+  @Roles(UserRole.VIEWER)
+  @ApiQuery({ name: "fromDate", example: "2026-08-01" })
+  @ApiQuery({ name: "toDate", example: "2026-08-31" })
+  attendanceSummary(@CurrentUser() user: AuthenticatedUser, @Query("fromDate") fromDate: string, @Query("toDate") toDate: string) {
+    return this.rosterService.attendanceSummary(user.organisationId, fromDate, toDate);
+  }
+
   @Post("weekly-cell-copy")
   @Roles(UserRole.ROSTER_MANAGER)
   copyWeeklyCell(@CurrentUser() user: AuthenticatedUser, @Body() dto: CopyWeeklyCellDto) {

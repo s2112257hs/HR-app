@@ -1,4 +1,6 @@
 import { BadRequestException } from "@nestjs/common";
+import { DayMarkerType } from "@prisma/client";
+import { countAttendanceDays } from "../src/common/utils/attendance-summary";
 import { durationMinutes, rangesOverlap } from "../src/common/utils/overlap";
 import { buildRosterRange, dateKeysOverlappingRange, dateKeyToUtcDate, parseRosterDate, utcDateToDateKey } from "../src/common/utils/roster-dates";
 
@@ -85,5 +87,22 @@ describe("roster rules", () => {
         "Indian/Maldives"
       )
     ).toEqual(["2026-08-20", "2026-08-21"]);
+  });
+
+  it("counts overnight shifts as one worked day on the shift start date", () => {
+    const counts = countAttendanceDays({
+      timezone: "Asia/Tashkent",
+      totalDays: 3,
+      shifts: [{ startAt: new Date("2026-08-03T20:00:00+05:00") }],
+      dayMarkers: [{ date: dateKeyToUtcDate("2026-08-05"), type: DayMarkerType.RDO }]
+    });
+
+    expect(counts).toEqual({
+      workedDays: 1,
+      rdoDays: 1,
+      sickDays: 0,
+      leaveDays: 0,
+      blankDays: 1
+    });
   });
 });

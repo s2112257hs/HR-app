@@ -277,3 +277,22 @@ export type OtSummaryResponse = {
     overtimeMinutes: number;
   }>;
 };
+
+export type AttendanceSummaryResponse = {
+  fromDate: string;
+  toDate: string;
+  timezone: string;
+  totalDays: number;
+  employees: Array<{
+    employeeId: string;
+    employeeNumber?: string | null;
+    displayName: string;
+    primaryDepartment?: ShiftDepartment | null;
+    workedDays: number;
+    rdoDays: number;
+    sickDays: number;
+    leaveDays: number;
+    totalDays: number;
+    blankDays: number;
+  }>;
+};

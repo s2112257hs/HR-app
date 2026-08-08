@@ -4,6 +4,7 @@ import { DayMarker, Prisma, Shift, ShiftStatus } from "@prisma/client";
 import { AuditService } from "../audit/audit.service";
 import { TenantEntityService } from "../common/services/tenant-entity.service";
 import { AuthenticatedUser } from "../common/types/authenticated-user";
+import { countAttendanceDays } from "../common/utils/attendance-summary";
 import { validationError } from "../common/utils/api-errors";
 import { employeeDisplayName, sortByPrimaryDepartment } from "../common/utils/employees";
 import { rangesOverlap } from "../common/utils/overlap";
@@ -515,6 +516,92 @@ export class RosterService {
     };
   }
 
+  async attendanceSummary(organisationId: string, fromDate: string, toDate: string) {
+    const organisation = await this.prisma.organisation.findUniqueOrThrow({
+      where: { id: organisationId },
+      select: { timezone: true }
+    });
+    const range = this.inclusiveDateRange(fromDate, toDate, organisation.timezone);
+    const shiftWhere = {
+      organisationId,
+      deletedAt: null,
+      status: ShiftStatus.SCHEDULED,
+      startAt: { gte: range.rangeStart, lt: range.rangeEnd }
+    };
+    const markerWhere = {
+      organisationId,
+      date: { gte: dateKeyToUtcDate(range.fromDate), lte: dateKeyToUtcDate(range.toDate) }
+    };
+
+    const employees = await this.prisma.employee.findMany({
+      where: {
+        organisationId,
+        deletedAt: null
+      },
+      include: {
+        primaryDepartment: {
+          select: {
+            id: true,
+            name: true,
+            shortCode: true,
+            colourHex: true,
+            displayOrder: true
+          }
+        },
+        shifts: {
+          where: shiftWhere,
+          select: {
+            startAt: true
+          }
+        },
+        dayMarkers: {
+          where: markerWhere,
+          select: {
+            date: true,
+            type: true
+          }
+        }
+      },
+      orderBy: [{ displayOrder: "asc" }, { firstName: "asc" }]
+    });
+    const totalDays = this.dayCount(range.fromDate, range.toDate, organisation.timezone);
+
+    return {
+      fromDate: range.fromDate,
+      toDate: range.toDate,
+      timezone: organisation.timezone,
+      totalDays,
+      employees: sortByPrimaryDepartment(employees).map((employee) => {
+        const counts = countAttendanceDays({
+          shifts: employee.shifts,
+          dayMarkers: employee.dayMarkers,
+          totalDays,
+          timezone: organisation.timezone
+        });
+
+        return {
+          employeeId: employee.id,
+          employeeNumber: employee.employeeNumber,
+          displayName: employeeDisplayName(employee),
+          primaryDepartment: employee.primaryDepartment
+            ? {
+                id: employee.primaryDepartment.id,
+                name: employee.primaryDepartment.name,
+                shortCode: employee.primaryDepartment.shortCode,
+                colourHex: employee.primaryDepartment.colourHex
+            }
+            : null,
+          workedDays: counts.workedDays,
+          rdoDays: counts.rdoDays,
+          sickDays: counts.sickDays,
+          leaveDays: counts.leaveDays,
+          totalDays,
+          blankDays: counts.blankDays
+        };
+      })
+    };
+  }
+
   private async getRoster(organisationId: string, startDate: string, days: number, startTime = "00:00") {
     if (!startDate) {
       throw validationError("date", "Date is required.");
@@ -676,6 +763,13 @@ export class RosterService {
     const end = Math.min(rangeEnd.getTime(), shiftEnd.getTime());
 
     return Math.max(0, Math.round((end - start) / 60000));
+  }
+
+  private dayCount(fromDate: string, toDate: string, timezone: string) {
+    const from = DateTime.fromISO(fromDate, { zone: timezone }).startOf("day");
+    const to = DateTime.fromISO(toDate, { zone: timezone }).startOf("day");
+
+    return Math.floor(to.diff(from, "days").days) + 1;
   }
 
   private targetDates(targetStartDate: string, targetEndDate: string, timezone: string) {

@@ -3,6 +3,7 @@ import { AppLayout } from "../components/AppLayout";
 import { DepartmentsPage } from "../features/departments/DepartmentsPage";
 import { EmployeesPage } from "../features/employees/EmployeesPage";
 import { LoginPage } from "../features/authentication/LoginPage";
+import { AttendanceSummaryPage } from "../features/roster/AttendanceSummaryPage";
 import { DailyRosterPage } from "../features/roster/DailyRosterPage";
 import { OtCalculatorPage } from "../features/roster/OtCalculatorPage";
 import { RdoTrackerPage } from "../features/roster/RdoTrackerPage";
@@ -25,6 +26,7 @@ export function App() {
           <Route path="/roster/ot-calculator" element={<Navigate to="/roster/ot-tracker" replace />} />
           <Route path="/roster/ot-tracker" element={<OtCalculatorPage />} />
           <Route path="/roster/rdo-tracker" element={<RdoTrackerPage />} />
+          <Route path="/roster/attendance-summary" element={<AttendanceSummaryPage />} />
           <Route element={<RequireManagerOrAdmin />}>
             <Route path="/back-office/employees" element={<EmployeesPage />} />
             <Route path="/back-office/departments" element={<DepartmentsPage />} />

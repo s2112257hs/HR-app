@@ -445,6 +445,25 @@ th {
   font-size: 12px;
 }
 
+.summary-count-pill {
+  display: inline-flex;
+  min-width: 30px;
+  justify-content: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-weight: 800;
+}
+
+.worked-days-pill {
+  background: #e8f7ef;
+  color: #12684f;
+}
+
+.total-days-pill {
+  background: #eef3f6;
+  color: #334155;
+}
+
 .search-box {
   display: flex;
   align-items: center;
