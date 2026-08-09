@@ -32,15 +32,17 @@ export class RosterController {
   @Get("weekly")
   @Roles(UserRole.VIEWER)
   @ApiQuery({ name: "startDate", example: "2026-08-20" })
-  weekly(@CurrentUser() user: AuthenticatedUser, @Query("startDate") startDate: string) {
-    return this.rosterService.weekly(user.organisationId, startDate);
+  @ApiQuery({ name: "alignToWeekStart", required: false, example: "true" })
+  weekly(@CurrentUser() user: AuthenticatedUser, @Query("startDate") startDate: string, @Query("alignToWeekStart") alignToWeekStart = "true") {
+    return this.rosterService.weekly(user.organisationId, startDate, alignToWeekStart !== "false");
   }
 
   @Get("weekly-validation")
   @Roles(UserRole.ROSTER_MANAGER)
   @ApiQuery({ name: "startDate", example: "2026-08-20" })
-  validateWeekly(@CurrentUser() user: AuthenticatedUser, @Query("startDate") startDate: string) {
-    return this.rosterService.validateWeekly(user.organisationId, startDate);
+  @ApiQuery({ name: "alignToWeekStart", required: false, example: "true" })
+  validateWeekly(@CurrentUser() user: AuthenticatedUser, @Query("startDate") startDate: string, @Query("alignToWeekStart") alignToWeekStart = "true") {
+    return this.rosterService.validateWeekly(user.organisationId, startDate, alignToWeekStart !== "false");
   }
 
   @Get("ot-summary")

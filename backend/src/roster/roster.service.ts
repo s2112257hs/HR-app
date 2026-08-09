@@ -49,22 +49,22 @@ export class RosterService {
     return this.getRoster(organisationId, date, 1, startTime);
   }
 
-  async weekly(organisationId: string, startDate: string) {
+  async weekly(organisationId: string, startDate: string, alignToWeekStart = true) {
     const organisation = await this.prisma.organisation.findUniqueOrThrow({
       where: { id: organisationId },
       select: { timezone: true, weekStartDay: true }
     });
-    const weekStartDate = this.weekStartDate(startDate, organisation.timezone, organisation.weekStartDay);
+    const weekStartDate = alignToWeekStart ? this.weekStartDate(startDate, organisation.timezone, organisation.weekStartDay) : this.rosterStartDate(startDate, organisation.timezone);
 
     return this.getRoster(organisationId, weekStartDate, 7);
   }
 
-  async validateWeekly(organisationId: string, startDate: string) {
+  async validateWeekly(organisationId: string, startDate: string, alignToWeekStart = true) {
     const organisation = await this.prisma.organisation.findUniqueOrThrow({
       where: { id: organisationId },
       select: { timezone: true, weekStartDay: true }
     });
-    const weekStartDate = this.weekStartDate(startDate, organisation.timezone, organisation.weekStartDay);
+    const weekStartDate = alignToWeekStart ? this.weekStartDate(startDate, organisation.timezone, organisation.weekStartDay) : this.rosterStartDate(startDate, organisation.timezone);
     const range = buildRosterRange(weekStartDate, organisation.timezone, 7);
     const rules = await this.prisma.validationRule.findMany({
       where: {
@@ -727,6 +727,19 @@ export class RosterService {
 
     const daysFromStart = (parsed.weekday - weekStartDay + 7) % 7;
     return parsed.minus({ days: daysFromStart }).toISODate() ?? date;
+  }
+
+  private rosterStartDate(date: string, timezone: string) {
+    if (!date) {
+      throw validationError("startDate", "Start date is required.");
+    }
+
+    const parsed = DateTime.fromISO(date, { zone: timezone }).startOf("day");
+    if (!parsed.isValid) {
+      throw validationError("startDate", "Start date must be a valid ISO date.");
+    }
+
+    return parsed.toISODate() ?? date;
   }
 
   private inclusiveDateRange(fromDate: string, toDate: string, timezone: string) {

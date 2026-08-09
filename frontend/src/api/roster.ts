@@ -64,12 +64,14 @@ export function fetchDailyRoster(date: string, startTime = "00:00") {
   return apiRequest<RosterResponse>(`/roster/daily?${params.toString()}`);
 }
 
-export function fetchWeeklyRoster(startDate: string) {
-  return apiRequest<RosterResponse>(`/roster/weekly?startDate=${encodeURIComponent(startDate)}`);
+export function fetchWeeklyRoster(startDate: string, alignToWeekStart = true) {
+  const params = new URLSearchParams({ startDate, alignToWeekStart: String(alignToWeekStart) });
+  return apiRequest<RosterResponse>(`/roster/weekly?${params.toString()}`);
 }
 
-export function validateWeeklyRoster(startDate: string) {
-  return apiRequest<RosterValidationResponse>(`/roster/weekly-validation?startDate=${encodeURIComponent(startDate)}`);
+export function validateWeeklyRoster(startDate: string, alignToWeekStart = true) {
+  const params = new URLSearchParams({ startDate, alignToWeekStart: String(alignToWeekStart) });
+  return apiRequest<RosterValidationResponse>(`/roster/weekly-validation?${params.toString()}`);
 }
 
 export function fetchOtSummary(fromDate: string, toDate: string) {

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronsLeft, ChevronsRight, Download, RotateCcw, Trash2, Undo2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, RotateCcw, Trash2, Undo2 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError } from "../../api/client";
 import { removeDayMarker, setDayMarker } from "../../api/dayMarkers";
@@ -57,6 +57,7 @@ export function WeeklyRosterPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const requestedStartDate = searchParams.get("startDate") ?? todayKey();
+  const alignToWeekStart = searchParams.get("alignToWeekStart") !== "false";
   const [modal, setModal] = useState<ShiftModalState | null>(null);
   const [dayMarkerModal, setDayMarkerModal] = useState<DayMarkerModalState | null>(null);
   const [markerType, setMarkerType] = useState<DayMarkerType>("RDO");
@@ -76,8 +77,8 @@ export function WeeklyRosterPage() {
   const [lockBusy, setLockBusy] = useState(false);
   const releaseLockOnUnmount = useRef(false);
   const rosterQuery = useQuery({
-    queryKey: ["roster", "weekly", requestedStartDate],
-    queryFn: () => fetchWeeklyRoster(requestedStartDate)
+    queryKey: ["roster", "weekly", requestedStartDate, alignToWeekStart],
+    queryFn: () => fetchWeeklyRoster(requestedStartDate, alignToWeekStart)
   });
   const employeesQuery = useQuery({
     queryKey: ["employees", "active"],
@@ -88,7 +89,13 @@ export function WeeklyRosterPage() {
     queryFn: () => fetchDepartments("active")
   });
 
-  const setStartDate = (date: string) => setSearchParams({ startDate: date }, { replace: true });
+  const setStartDate = (date: string, align = false) => {
+    const nextParams: Record<string, string> = { startDate: date };
+    if (!align) {
+      nextParams.alignToWeekStart = "false";
+    }
+    setSearchParams(nextParams, { replace: true });
+  };
   const employees = employeesQuery.data ?? [];
   const departments = departmentsQuery.data ?? [];
   const weekStartDate = rosterQuery.data?.startDate ?? requestedStartDate;
@@ -145,10 +152,10 @@ export function WeeklyRosterPage() {
   }, [dayMarkerModal]);
 
   useEffect(() => {
-    if (rosterQuery.data?.startDate && rosterQuery.data.startDate !== requestedStartDate) {
-      setStartDate(rosterQuery.data.startDate);
+    if (alignToWeekStart && rosterQuery.data?.startDate && rosterQuery.data.startDate !== requestedStartDate) {
+      setStartDate(rosterQuery.data.startDate, true);
     }
-  }, [rosterQuery.data?.startDate, requestedStartDate]);
+  }, [alignToWeekStart, rosterQuery.data?.startDate, requestedStartDate]);
 
   useEffect(() => {
     if (user?.role === "VIEWER") {
@@ -310,7 +317,7 @@ export function WeeklyRosterPage() {
     setPdfError(null);
     setPdfPending(true);
     try {
-      const validation = await validateWeeklyRoster(weekStartDate);
+      const validation = await validateWeeklyRoster(weekStartDate, alignToWeekStart);
       if (validation.valid) {
         await downloadCurrentPdf();
         return;
@@ -496,17 +503,23 @@ export function WeeklyRosterPage() {
           </p>
         </div>
         <div className="toolbar">
-          <button className="icon-button" type="button" onClick={() => setStartDate(addDateDays(weekStartDate, -7))} aria-label="Previous week">
+          <button className="icon-button" type="button" onClick={() => setStartDate(addDateDays(weekStartDate, -7))} aria-label="Previous week" title="Previous week">
             <ChevronsLeft size={18} aria-hidden="true" />
           </button>
-          <button className="secondary-button" type="button" onClick={() => setStartDate(todayKey())}>
+          <button className="icon-button" type="button" onClick={() => setStartDate(addDateDays(weekStartDate, -1))} aria-label="Previous day" title="Previous day">
+            <ChevronLeft size={18} aria-hidden="true" />
+          </button>
+          <button className="secondary-button" type="button" onClick={() => setStartDate(todayKey(), true)}>
             <RotateCcw size={16} aria-hidden="true" />
             Today
           </button>
-          <button className="icon-button" type="button" onClick={() => setStartDate(addDateDays(weekStartDate, 7))} aria-label="Next week">
+          <button className="icon-button" type="button" onClick={() => setStartDate(addDateDays(weekStartDate, 1))} aria-label="Next day" title="Next day">
+            <ChevronRight size={18} aria-hidden="true" />
+          </button>
+          <button className="icon-button" type="button" onClick={() => setStartDate(addDateDays(weekStartDate, 7))} aria-label="Next week" title="Next week">
             <ChevronsRight size={18} aria-hidden="true" />
           </button>
-          <input type="date" value={weekStartDate} onChange={(event) => setStartDate(event.target.value)} />
+          <input type="date" value={weekStartDate} onChange={(event) => setStartDate(event.target.value, true)} />
           <button className="secondary-button" type="button" onClick={() => void downloadPdf()} disabled={!rosterQuery.data || pdfPending}>
             <Download size={16} aria-hidden="true" />
             {pdfPending ? "Checking..." : "PDF"}

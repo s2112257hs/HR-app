@@ -383,11 +383,6 @@ export function SettingsPage() {
                     <input type="date" value={rdoTrackingStartDate} onChange={(event) => setRdoTrackingStartDate(event.target.value)} />
                   </label>
                   <p className="dialog-note">RDO owed is counted from this date, or from an employee's start date.</p>
-                  <div className="settings-save-row">
-                    <button className="primary-button roster-management-save" type="submit" disabled={saveSettingsMutation.isPending}>
-                      {saveSettingsMutation.isPending ? "Saving settings..." : "Save settings"}
-                    </button>
-                  </div>
                 </>
               )}
               <div className="roster-order-block">
@@ -410,6 +405,13 @@ export function SettingsPage() {
           {settingsError && <div className="form-error">{settingsError}</div>}
           {orderMessage && <div className="form-success">{orderMessage}</div>}
           {orderError && <div className="form-error">{orderError}</div>}
+          {settingsQuery.data && (
+            <div className="settings-save-row">
+              <button className="primary-button roster-management-save" type="submit" disabled={saveSettingsMutation.isPending}>
+                {saveSettingsMutation.isPending ? "Saving settings..." : "Save settings"}
+              </button>
+            </div>
+          )}
         </form>
         {rdoBalanceOpen && (
           <div className="modal-backdrop" role="presentation">
