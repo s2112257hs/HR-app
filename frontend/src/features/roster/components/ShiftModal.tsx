@@ -19,7 +19,7 @@ const schema = z.object({
   date: z.string().min(10, "Choose a date."),
   startTime: z.string().regex(/^\d{2}:\d{2}$/, "Enter a valid start time."),
   endTime: z.string().regex(/^\d{2}:\d{2}$/, "Enter a valid end time."),
-  overtimeHours: z.coerce.number().min(0, "OT cannot be negative.").default(0),
+  overtime: z.string().regex(/^\d{1,3}:\d{2}$/, "Enter overtime as HH:MM.").refine((value) => overtimeToMinutes(value) !== null, "Enter a valid overtime duration."),
   notes: z.string().optional()
 });
 
@@ -61,7 +61,7 @@ export function ShiftModal({ state, employees, departments, onClose, onBeforeMut
         date: dateKeyFromIso(state.shift.startAt),
         startTime: timeLabel(state.shift.startAt),
         endTime: timeLabel(state.shift.endAt),
-        overtimeHours: minutesToHoursValue(state.shift.overtimeMinutes ?? 0),
+        overtime: minutesToOvertimeValue(state.shift.overtimeMinutes ?? 0),
         notes: state.shift.notes ?? ""
       };
     }
@@ -74,7 +74,7 @@ export function ShiftModal({ state, employees, departments, onClose, onBeforeMut
       date: state.date,
       startTime: state.startTime ?? "08:00",
       endTime: state.endTime ?? "12:00",
-      overtimeHours: 0,
+      overtime: "00:00",
       notes: ""
     };
   }, [departments, employees, state]);
@@ -83,6 +83,7 @@ export function ShiftModal({ state, employees, departments, onClose, onBeforeMut
     register,
     handleSubmit,
     setError,
+    setValue,
     reset,
     getValues,
     formState: { errors, isSubmitting }
@@ -90,10 +91,34 @@ export function ShiftModal({ state, employees, departments, onClose, onBeforeMut
     resolver: zodResolver(schema),
     defaultValues
   });
+  const overtimeField = register("overtime");
 
   useEffect(() => {
     reset(defaultValues);
   }, [defaultValues, reset]);
+
+  const setOvertimeMinutes = (minutes: number) => {
+    const values = getValues();
+    const maxMinutes = shiftDurationMinutes(values.startTime, values.endTime);
+    const nextMinutes = Math.min(Math.max(minutes, 0), maxMinutes);
+    setValue("overtime", minutesToOvertimeValue(nextMinutes), { shouldDirty: true, shouldValidate: true });
+  };
+
+  const adjustOvertime = (deltaMinutes: number) => {
+    setOvertimeMinutes((overtimeToMinutes(getValues("overtime")) ?? 0) + deltaMinutes);
+  };
+
+  const validateOvertimeForValues = (values: ShiftForm) => {
+    const overtimeMinutes = overtimeToMinutes(values.overtime);
+    const maxMinutes = shiftDurationMinutes(values.startTime, values.endTime);
+
+    if (overtimeMinutes !== null && overtimeMinutes > maxMinutes) {
+      setError("overtime", { message: `OT cannot exceed shift duration (${minutesToOvertimeValue(maxMinutes)}).` });
+      return false;
+    }
+
+    return true;
+  };
 
   const saveMutation = useMutation({
     mutationFn: async (values: ShiftForm & { overlapAcknowledged?: boolean }) => {
@@ -103,7 +128,7 @@ export function ShiftModal({ state, employees, departments, onClose, onBeforeMut
         departmentId: values.departmentId,
         startAt: toLocalDateTimeIso(values.date, values.startTime),
         endAt: toLocalDateTimeIso(values.date, values.endTime, overnight),
-        overtimeMinutes: hoursToMinutes(values.overtimeHours),
+        overtimeMinutes: overtimeToMinutes(values.overtime) ?? 0,
         notes: values.notes?.trim() || null,
         overlapAcknowledged: values.overlapAcknowledged
       };
@@ -152,6 +177,9 @@ export function ShiftModal({ state, employees, departments, onClose, onBeforeMut
       setError("root", { message: "Roster managers cannot edit previous days. Ask an admin to change past rosters." });
       return;
     }
+    if (!validateOvertimeForValues(values)) {
+      return;
+    }
 
     const overnight = values.endTime <= values.startTime;
     const overlap = await checkShiftOverlap({
@@ -175,6 +203,9 @@ export function ShiftModal({ state, employees, departments, onClose, onBeforeMut
 
   const confirmOverlap = () => {
     const values = getValues();
+    if (!validateOvertimeForValues(values)) {
+      return;
+    }
     if (onBeforeMutation && !onBeforeMutation(cellsForValues(state, values))) {
       return;
     }
@@ -200,7 +231,7 @@ export function ShiftModal({ state, employees, departments, onClose, onBeforeMut
             </button>
           </div>
           {!canEdit && <div className="form-error">Roster managers cannot edit previous days. Ask an admin to change past rosters.</div>}
-          <div className="form-grid">
+          <div className="shift-form-grid">
             <label>
               Employee
               <select {...register("employeeId")} disabled={!canEdit}>
@@ -225,6 +256,8 @@ export function ShiftModal({ state, employees, departments, onClose, onBeforeMut
               Date
               <input type="date" {...register("date")} disabled={!canEdit} />
             </label>
+          </div>
+          <div className="shift-form-grid">
             <label>
               Start
               <input type="time" step="900" {...register("startTime")} disabled={!canEdit} />
@@ -234,8 +267,30 @@ export function ShiftModal({ state, employees, departments, onClose, onBeforeMut
               <input type="time" step="900" {...register("endTime")} disabled={!canEdit} />
             </label>
             <label>
-              OT
-              <input type="number" min="0" step="0.25" {...register("overtimeHours")} disabled={!canEdit} />
+              Overtime (HH:MM)
+              <span className="duration-stepper">
+                <button className="duration-stepper-button" type="button" onClick={() => adjustOvertime(-15)} disabled={!canEdit} aria-label="Decrease overtime by 15 minutes">
+                  -
+                </button>
+                <input
+                  placeholder="HH:MM"
+                  inputMode="numeric"
+                  {...overtimeField}
+                  onChange={(event) => {
+                    event.target.value = formatOvertimeInput(event.target.value);
+                    void overtimeField.onChange(event);
+                  }}
+                  onBlur={(event) => {
+                    event.target.value = normaliseOvertimeInput(event.target.value);
+                    void overtimeField.onChange(event);
+                    void overtimeField.onBlur(event);
+                  }}
+                  disabled={!canEdit}
+                />
+                <button className="duration-stepper-button" type="button" onClick={() => adjustOvertime(15)} disabled={!canEdit} aria-label="Increase overtime by 15 minutes">
+                  +
+                </button>
+              </span>
             </label>
           </div>
           <label>
@@ -247,7 +302,7 @@ export function ShiftModal({ state, employees, departments, onClose, onBeforeMut
               {errors.root?.message ||
                 errors.startTime?.message ||
                 errors.endTime?.message ||
-                errors.overtimeHours?.message ||
+                errors.overtime?.message ||
                 errors.employeeId?.message ||
                 errors.departmentId?.message ||
                 "Check the highlighted fields."}
@@ -302,16 +357,65 @@ function toShiftFormField(field: string) {
     return "endTime";
   }
   if (field === "overtimeMinutes") {
-    return "overtimeHours";
+    return "overtime";
   }
 
   return field as keyof ShiftForm;
 }
 
-function hoursToMinutes(value: number) {
-  return Math.round(Number(value || 0) * 60);
+function overtimeToMinutes(value: string) {
+  const match = /^(\d{1,3}):(\d{2})$/.exec(value);
+  if (!match) {
+    return null;
+  }
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes) || minutes > 59) {
+    return null;
+  }
+  return hours * 60 + minutes;
 }
 
-function minutesToHoursValue(minutes: number) {
-  return Number((minutes / 60).toFixed(2));
+function minutesToOvertimeValue(totalMinutes: number) {
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function formatOvertimeInput(value: string) {
+  const digits = value.replace(/\D/g, "").slice(0, 4);
+  if (digits.length <= 2) {
+    return digits;
+  }
+
+  return `${digits.slice(0, 2)}:${digits.slice(2)}`;
+}
+
+function normaliseOvertimeInput(value: string) {
+  const digits = value.replace(/\D/g, "").slice(0, 4);
+  if (!digits) {
+    return "00:00";
+  }
+
+  return formatOvertimeInput(digits.padEnd(4, "0"));
+}
+
+function shiftDurationMinutes(startTime: string, endTime: string) {
+  const startMinutes = timeToMinutes(startTime);
+  const endMinutes = timeToMinutes(endTime);
+  if (startMinutes === null || endMinutes === null) {
+    return 0;
+  }
+
+  return endMinutes <= startMinutes ? endMinutes + 24 * 60 - startMinutes : endMinutes - startMinutes;
+}
+
+function timeToMinutes(time: string) {
+  const match = /^(\d{2}):(\d{2})$/.exec(time);
+  if (!match) {
+    return null;
+  }
+
+  return Number(match[1]) * 60 + Number(match[2]);
 }
