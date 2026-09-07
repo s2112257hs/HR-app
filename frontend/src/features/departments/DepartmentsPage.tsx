@@ -1,12 +1,13 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Ban, Edit3, RotateCcw, Trash2 } from "lucide-react";
+import { AlertTriangle, Ban, Download, Edit3, RotateCcw, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { ApiError } from "../../api/client";
 import { createDepartment, deactivateDepartment, DepartmentPayload, fetchDepartments, hardDeleteDepartment, restoreDepartment, updateDepartment } from "../../api/departments";
 import { Department } from "../../types/api";
+import { downloadExcelSheet, type ExcelColumn } from "../../utilities/excelExport";
 import { friendlyApiFieldErrors, friendlyApiMessage } from "../../utilities/formErrors";
 import { useAuth } from "../authentication/AuthProvider";
 
@@ -35,6 +36,13 @@ const COLOUR_PALETTE = [
   { name: "Blue", shades: ["#1E3A8A", "#2563EB", "#3B82F6", "#93C5FD", "#BFDBFE"] },
   { name: "Indigo", shades: ["#312E81", "#4F46E5", "#6366F1", "#A5B4FC", "#C7D2FE"] },
   { name: "Purple", shades: ["#581C87", "#7E22CE", "#A855F7", "#C084FC", "#E9D5FF"] }
+];
+
+const DEPARTMENT_COLUMNS: ExcelColumn<Department>[] = [
+  { header: "Name", value: (department) => department.name, width: 28 },
+  { header: "Short code", value: (department) => department.shortCode, width: 14 },
+  { header: "Colour hex", value: (department) => department.colourHex, width: 14 },
+  { header: "Status", value: (department) => (department.isActive ? "Active" : "Inactive"), width: 12 }
 ];
 
 export function DepartmentsPage() {
@@ -143,6 +151,15 @@ export function DepartmentsPage() {
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
           </select>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => downloadDepartmentsExcel(departmentsQuery.data ?? [], status)}
+            disabled={!departmentsQuery.data?.length}
+          >
+            <Download size={16} aria-hidden="true" />
+            Excel
+          </button>
         </div>
       </header>
       <form className="panel form-panel" onSubmit={form.handleSubmit((values) => saveMutation.mutate(values))}>
@@ -355,4 +372,13 @@ export function DepartmentsPage() {
       )}
     </section>
   );
+}
+
+function downloadDepartmentsExcel(departments: Department[], status: string) {
+  downloadExcelSheet({
+    fileName: `departments-${status}.xlsx`,
+    sheetName: "Departments",
+    columns: DEPARTMENT_COLUMNS,
+    rows: departments
+  });
 }

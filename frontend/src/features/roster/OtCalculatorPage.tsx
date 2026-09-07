@@ -1,8 +1,20 @@
 import { useQuery } from "@tanstack/react-query";
-import { RotateCcw } from "lucide-react";
+import { Download, RotateCcw } from "lucide-react";
 import { useState, type CSSProperties } from "react";
 import { fetchOtSummary } from "../../api/roster";
+import type { OtSummaryResponse } from "../../types/api";
+import { downloadExcelSheet, type ExcelColumn } from "../../utilities/excelExport";
 import { todayKey } from "./utilities/dates";
+
+type OtSummaryEmployee = OtSummaryResponse["employees"][number];
+
+const OT_SUMMARY_COLUMNS: ExcelColumn<OtSummaryEmployee>[] = [
+  { header: "Employee number", value: (employee) => employee.employeeNumber ?? "", width: 18 },
+  { header: "Employee", value: (employee) => employee.displayName, width: 28 },
+  { header: "Primary department", value: (employee) => employee.primaryDepartment?.shortCode ?? "", width: 20 },
+  { header: "Hours worked", value: (employee) => hoursValue(employee.hoursWorkedMinutes), width: 16 },
+  { header: "OT", value: (employee) => hoursValue(employee.overtimeMinutes), width: 12 }
+];
 
 export function OtCalculatorPage() {
   const today = todayKey();
@@ -31,6 +43,15 @@ export function OtCalculatorPage() {
             To
             <input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} />
           </label>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => summaryQuery.data && downloadOtSummaryExcel(summaryQuery.data)}
+            disabled={Boolean(dateError) || !summaryQuery.data?.employees.length}
+          >
+            <Download size={16} aria-hidden="true" />
+            Excel
+          </button>
           <button
             className="secondary-button"
             type="button"
@@ -84,6 +105,19 @@ export function OtCalculatorPage() {
   );
 }
 
+function downloadOtSummaryExcel(summary: OtSummaryResponse) {
+  downloadExcelSheet({
+    fileName: `ot-tracker-${summary.fromDate}-to-${summary.toDate}.xlsx`,
+    sheetName: "OT Tracker",
+    columns: OT_SUMMARY_COLUMNS,
+    rows: summary.employees
+  });
+}
+
 function formatHours(minutes: number) {
   return `${(minutes / 60).toFixed(2)} h`;
+}
+
+function hoursValue(minutes: number) {
+  return Number((minutes / 60).toFixed(2));
 }

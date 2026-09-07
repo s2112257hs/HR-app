@@ -233,6 +233,7 @@ export class DayMarkersService {
 
     const asOfWeek = this.configuredWeekStart(asOf, weekStartDay);
     const trackingWeek = this.configuredWeekStart(trackingStart, weekStartDay);
+    /* istanbul ignore next -- defensive guard; trackingWeek cannot be after asOfWeek when trackingStart is on or before asOf. */
     if (trackingWeek > asOfWeek) {
       return 0;
     }

@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Trash2, Edit3, RotateCcw, Search, UserMinus } from "lucide-react";
+import { AlertTriangle, Download, Edit3, RotateCcw, Search, Trash2, UserMinus } from "lucide-react";
 import { type CSSProperties, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -8,6 +8,7 @@ import { ApiError } from "../../api/client";
 import { fetchDepartments } from "../../api/departments";
 import { createEmployee, deactivateEmployee, EmployeePayload, fetchEmployees, hardDeleteEmployee, restoreEmployee, updateEmployee } from "../../api/employees";
 import { Employee } from "../../types/api";
+import { downloadExcelSheet, type ExcelColumn } from "../../utilities/excelExport";
 import { friendlyApiFieldErrors, friendlyApiMessage } from "../../utilities/formErrors";
 import { useAuth } from "../authentication/AuthProvider";
 
@@ -38,6 +39,22 @@ const blankForm: EmployeeForm = {
   endDate: "",
   primaryDepartmentId: ""
 };
+
+const EMPLOYEE_COLUMNS: ExcelColumn<Employee>[] = [
+  { header: "Employee number", value: (employee) => employee.employeeNumber ?? "", width: 18 },
+  { header: "Display name", value: employeeDisplayName, width: 28 },
+  { header: "First name", value: (employee) => employee.firstName, width: 20 },
+  { header: "Last name", value: (employee) => employee.lastName ?? "", width: 20 },
+  { header: "Preferred name", value: (employee) => employee.preferredName ?? "", width: 20 },
+  { header: "Phone", value: (employee) => employee.phone ?? "", width: 18 },
+  { header: "Email", value: (employee) => employee.email ?? "", width: 30 },
+  { header: "Employment type", value: (employee) => employee.employmentType ?? "", width: 18 },
+  { header: "Primary department", value: (employee) => departmentLabel(employee.primaryDepartment), width: 24 },
+  { header: "Start date", value: (employee) => dateOnly(employee.startDate), width: 14 },
+  { header: "End date", value: (employee) => dateOnly(employee.endDate), width: 14 },
+  { header: "RDO balance b/d", value: (employee) => employee.rdoBalanceBroughtForward ?? 0, width: 16 },
+  { header: "Status", value: (employee) => (employee.isActive ? "Active" : "Inactive"), width: 12 }
+];
 
 export function EmployeesPage() {
   const queryClient = useQueryClient();
@@ -153,6 +170,15 @@ export function EmployeesPage() {
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
           </select>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => downloadEmployeesExcel(employeesQuery.data ?? [], status)}
+            disabled={!employeesQuery.data?.length}
+          >
+            <Download size={16} aria-hidden="true" />
+            Excel
+          </button>
         </div>
       </header>
       <form className="panel form-panel" onSubmit={form.handleSubmit((values) => saveMutation.mutate(values))}>
@@ -359,6 +385,23 @@ export function EmployeesPage() {
 
 function employeeDisplayName(employee: Employee) {
   return employee.preferredName || [employee.firstName, employee.lastName].filter(Boolean).join(" ");
+}
+
+function downloadEmployeesExcel(employees: Employee[], status: string) {
+  downloadExcelSheet({
+    fileName: `employees-${status}.xlsx`,
+    sheetName: "Employees",
+    columns: EMPLOYEE_COLUMNS,
+    rows: employees
+  });
+}
+
+function departmentLabel(department: Employee["primaryDepartment"]) {
+  return department ? `${department.shortCode} - ${department.name}` : "";
+}
+
+function dateOnly(value?: string | null) {
+  return value?.slice(0, 10) ?? "";
 }
 
 function cleanEmployeePayload(values: EmployeeForm): EmployeePayload {

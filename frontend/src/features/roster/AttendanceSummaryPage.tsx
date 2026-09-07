@@ -1,8 +1,24 @@
 import { useQuery } from "@tanstack/react-query";
-import { RotateCcw } from "lucide-react";
+import { Download, RotateCcw } from "lucide-react";
 import { useState, type CSSProperties } from "react";
 import { fetchAttendanceSummary } from "../../api/roster";
+import type { AttendanceSummaryResponse } from "../../types/api";
+import { downloadExcelSheet, type ExcelColumn } from "../../utilities/excelExport";
 import { todayKey } from "./utilities/dates";
+
+type AttendanceSummaryEmployee = AttendanceSummaryResponse["employees"][number];
+
+const ATTENDANCE_SUMMARY_COLUMNS: ExcelColumn<AttendanceSummaryEmployee>[] = [
+  { header: "Employee number", value: (employee) => employee.employeeNumber ?? "", width: 18 },
+  { header: "Employee", value: (employee) => employee.displayName, width: 28 },
+  { header: "Primary department", value: (employee) => employee.primaryDepartment?.shortCode ?? "", width: 20 },
+  { header: "Worked", value: (employee) => employee.workedDays, width: 12 },
+  { header: "RDO", value: (employee) => employee.rdoDays, width: 12 },
+  { header: "Sick", value: (employee) => employee.sickDays, width: 12 },
+  { header: "Leave", value: (employee) => employee.leaveDays, width: 12 },
+  { header: "Blank", value: (employee) => employee.blankDays, width: 12 },
+  { header: "Total days", value: (employee) => employee.totalDays, width: 14 }
+];
 
 export function AttendanceSummaryPage() {
   const today = todayKey();
@@ -46,6 +62,15 @@ export function AttendanceSummaryPage() {
             To
             <input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} />
           </label>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => summaryQuery.data && downloadAttendanceSummaryExcel(summaryQuery.data)}
+            disabled={Boolean(dateError) || !summaryQuery.data?.employees.length}
+          >
+            <Download size={16} aria-hidden="true" />
+            Excel
+          </button>
           <button
             className="secondary-button"
             type="button"
@@ -108,6 +133,15 @@ export function AttendanceSummaryPage() {
       )}
     </section>
   );
+}
+
+function downloadAttendanceSummaryExcel(summary: AttendanceSummaryResponse) {
+  downloadExcelSheet({
+    fileName: `attendance-summary-${summary.fromDate}-to-${summary.toDate}.xlsx`,
+    sheetName: "Attendance Summary",
+    columns: ATTENDANCE_SUMMARY_COLUMNS,
+    rows: summary.employees
+  });
 }
 
 function monthStart(month: string) {

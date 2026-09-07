@@ -1,9 +1,32 @@
-import { AlertTriangle, CheckCircle2, Edit2, Key, Plus, Search, ShieldCheck, Trash2, UserCog, UserPlus } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, Edit2, Key, Plus, Search, ShieldCheck, Trash2, UserCog, UserPlus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { apiRequest } from "../../api/client";
 import { SuperAdminOrganisation, SuperAdminUser, User, UserRole } from "../../types/api";
+import { downloadExcelSheet, type ExcelColumn } from "../../utilities/excelExport";
 import { friendlyApiMessage } from "../../utilities/formErrors";
 import { useAuth } from "../authentication/AuthProvider";
+
+const SUPER_ADMIN_ORGANISATION_COLUMNS: ExcelColumn<SuperAdminOrganisation>[] = [
+  { header: "Code", value: (organisation) => organisation.code, width: 12 },
+  { header: "Property name", value: (organisation) => organisation.name, width: 30 },
+  { header: "Timezone", value: (organisation) => organisation.timezone, width: 24 },
+  { header: "Week start day", value: (organisation) => organisation.weekStartDay, width: 16 },
+  { header: "Users", value: (organisation) => organisation.stats.usersCount, width: 12 },
+  { header: "Employees", value: (organisation) => organisation.stats.employeesCount, width: 12 },
+  { header: "Departments", value: (organisation) => organisation.stats.departmentsCount, width: 14 },
+  { header: "Shifts", value: (organisation) => organisation.stats.shiftsCount, width: 12 },
+  { header: "Created at", value: (organisation) => organisation.createdAt, width: 24 }
+];
+
+const SUPER_ADMIN_USER_COLUMNS: ExcelColumn<SuperAdminUser>[] = [
+  { header: "Name", value: (user) => user.name, width: 24 },
+  { header: "Username", value: (user) => user.username ?? "", width: 20 },
+  { header: "Email", value: (user) => user.email, width: 30 },
+  { header: "Role", value: (user) => user.role.replace("_", " "), width: 18 },
+  { header: "Status", value: (user) => (user.isActive ? "Active" : "Inactive"), width: 12 },
+  { header: "Primary property", value: (user) => formatPropertyLabel(user.primaryOrganisation), width: 34 },
+  { header: "Property access", value: (user) => user.memberships.map(formatMembershipLabel).join("; "), width: 60 }
+];
 
 export function SuperAdminPage() {
   const { user, updateCurrentUser, refreshOrganisations } = useAuth();
@@ -336,7 +359,27 @@ export function SuperAdminPage() {
             Platform organisation management, 4-digit code configuration, and multi-tenant access control.
           </p>
         </div>
-        <div style={{ display: "flex", gap: "0.75rem" }}>
+        <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => downloadSuperAdminOrganisationsExcel(organisations)}
+            disabled={loading || organisations.length === 0}
+            style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.5rem 1rem", cursor: loading || organisations.length === 0 ? "not-allowed" : "pointer" }}
+          >
+            <Download size={16} />
+            Properties Excel
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => downloadSuperAdminUsersExcel(users)}
+            disabled={loading || users.length === 0}
+            style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.5rem 1rem", cursor: loading || users.length === 0 ? "not-allowed" : "pointer" }}
+          >
+            <Download size={16} />
+            Users Excel
+          </button>
           <button
             type="button"
             className="secondary-button"
@@ -940,4 +983,30 @@ export function SuperAdminPage() {
       )}
     </div>
   );
+}
+
+function downloadSuperAdminOrganisationsExcel(organisations: SuperAdminOrganisation[]) {
+  downloadExcelSheet({
+    fileName: "super-admin-properties.xlsx",
+    sheetName: "Properties",
+    columns: SUPER_ADMIN_ORGANISATION_COLUMNS,
+    rows: organisations
+  });
+}
+
+function downloadSuperAdminUsersExcel(users: SuperAdminUser[]) {
+  downloadExcelSheet({
+    fileName: "super-admin-users.xlsx",
+    sheetName: "Users",
+    columns: SUPER_ADMIN_USER_COLUMNS,
+    rows: users
+  });
+}
+
+function formatPropertyLabel(organisation: { code: string; name: string }) {
+  return `[${organisation.code}] ${organisation.name}`;
+}
+
+function formatMembershipLabel(membership: SuperAdminUser["memberships"][number]) {
+  return `${formatPropertyLabel(membership.organisation)} - ${membership.role.replace("_", " ")} - ${membership.isActive ? "Active" : "Inactive"}`;
 }

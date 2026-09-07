@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Award, Building2, Globe2, Mail, Pencil, Power, RotateCcw, SquarePen, UserRound, Users, X } from "lucide-react";
+import { Award, Building2, Download, Globe2, Mail, Pencil, Power, RotateCcw, SquarePen, UserRound, Users, X } from "lucide-react";
 import { useEffect, useMemo, useState, type CSSProperties, type DragEvent } from "react";
 import { fetchDepartments, reorderDepartments } from "../api/departments";
 import { fetchEmployees, reorderEmployees } from "../api/employees";
@@ -18,6 +18,7 @@ import {
 } from "../api/settings";
 import { Department, Employee, ValidationRule } from "../types/api";
 import { useAuth } from "../features/authentication/AuthProvider";
+import { downloadExcelSheet, type ExcelColumn } from "../utilities/excelExport";
 import { friendlyApiMessage } from "../utilities/formErrors";
 
 const EMPTY_RULE_FORM: ValidationRulePayload = {
@@ -40,6 +41,16 @@ const WEEK_START_OPTIONS = [
 type OrderModal = "departments" | "employees" | null;
 type OrderDepartment = Pick<Department, "id" | "name" | "shortCode" | "colourHex">;
 type DragPlacement = "before" | "after";
+
+const VALIDATION_RULE_COLUMNS: ExcelColumn<ValidationRule>[] = [
+  { header: "Name", value: (rule) => rule.name, width: 28 },
+  { header: "Department", value: (rule) => rule.department.name, width: 26 },
+  { header: "Department code", value: (rule) => rule.department.shortCode, width: 18 },
+  { header: "Start time", value: (rule) => rule.startTime, width: 14 },
+  { header: "End time", value: (rule) => rule.endTime, width: 14 },
+  { header: "Minimum staff", value: (rule) => rule.minimumStaff, width: 16 },
+  { header: "Status", value: (rule) => (rule.isActive ? "Active" : "Inactive"), width: 12 }
+];
 
 export function SettingsPage() {
   const { user } = useAuth();
@@ -660,6 +671,15 @@ export function SettingsPage() {
         <section className="panel form-panel validation-rules-panel validation-rules-list-panel">
           <div className="form-panel-heading">
             <h2>Current Validation Rules List</h2>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => downloadValidationRulesExcel(sortedRules)}
+              disabled={!sortedRules.length}
+            >
+              <Download size={16} aria-hidden="true" />
+              Excel
+            </button>
           </div>
           {validationRulesQuery.isLoading && <div className="skeleton-panel compact" />}
           {validationRulesQuery.isError && (
@@ -740,6 +760,15 @@ export function SettingsPage() {
       </div>
     </section>
   );
+}
+
+function downloadValidationRulesExcel(rules: ValidationRule[]) {
+  downloadExcelSheet({
+    fileName: "validation-rules.xlsx",
+    sheetName: "Validation Rules",
+    columns: VALIDATION_RULE_COLUMNS,
+    rows: rules
+  });
 }
 
 function validateRuleForm(form: ValidationRulePayload) {

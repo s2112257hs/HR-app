@@ -1,12 +1,13 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Edit3, Eye, EyeOff, RotateCcw, Trash2, UserMinus } from "lucide-react";
+import { AlertTriangle, Download, Edit3, Eye, EyeOff, RotateCcw, Trash2, UserMinus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { ApiError } from "../../api/client";
 import { createUser, deactivateUser, fetchUsers, hardDeleteUser, restoreUser, updateUser, UserPayload } from "../../api/users";
 import { User, UserRole } from "../../types/api";
+import { downloadExcelSheet, type ExcelColumn } from "../../utilities/excelExport";
 import { friendlyApiFieldErrors, friendlyApiMessage } from "../../utilities/formErrors";
 import { useAuth } from "../authentication/AuthProvider";
 
@@ -34,6 +35,17 @@ const blankForm: UserForm = {
   password: "",
   role: "VIEWER"
 };
+
+const USER_COLUMNS: ExcelColumn<User>[] = [
+  { header: "Name", value: (user) => user.name, width: 24 },
+  { header: "Username", value: (user) => user.username ?? "", width: 20 },
+  { header: "Email", value: (user) => user.email, width: 30 },
+  { header: "Property access", value: (user) => propertyLabel(user.activeOrganisationAccess?.organisation), width: 32 },
+  { header: "Primary property", value: (user) => propertyLabel(user.primaryOrganisation), width: 32 },
+  { header: "Role here", value: (user) => user.role.replace("_", " "), width: 18 },
+  { header: "Status", value: (user) => (user.isActive ? "Active" : "Inactive"), width: 12 },
+  { header: "Last login", value: (user) => user.lastLoginAt ?? "", width: 24 }
+];
 
 function propertyLabel(property?: { code: string; name: string } | null) {
   return property ? `${property.name} (${property.code})` : "Current property";
@@ -133,6 +145,17 @@ export function UsersPage() {
         <div>
           <h1>Users</h1>
           <p>{usersQuery.data?.length ?? 0} accounts</p>
+        </div>
+        <div className="toolbar">
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => downloadUsersExcel(usersQuery.data ?? [])}
+            disabled={!usersQuery.data?.length}
+          >
+            <Download size={16} aria-hidden="true" />
+            Excel
+          </button>
         </div>
       </header>
       <form className="panel form-panel" onSubmit={form.handleSubmit((values) => saveMutation.mutate(values))}>
@@ -293,4 +316,13 @@ export function UsersPage() {
       )}
     </section>
   );
+}
+
+function downloadUsersExcel(users: User[]) {
+  downloadExcelSheet({
+    fileName: "users.xlsx",
+    sheetName: "Users",
+    columns: USER_COLUMNS,
+    rows: users
+  });
 }

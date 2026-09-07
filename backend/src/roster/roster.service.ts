@@ -949,6 +949,7 @@ export class RosterService {
     for (let index = 0; index < points.length - 1; index += 1) {
       const segmentStart = points[index];
       const segmentEnd = points[index + 1];
+      /* istanbul ignore next -- points are sorted unique values, so this only protects against unexpected numeric input. */
       if (segmentEnd <= segmentStart) {
         continue;
       }
@@ -1035,6 +1036,7 @@ export class RosterService {
       const segmentEnd = end < dayEnd ? end : dayEnd;
       const date = cursor.toISODate();
 
+      /* istanbul ignore next -- valid shift ranges always produce a date and positive segment inside the cursor bounds. */
       if (!date || segmentEnd <= segmentStart) {
         continue;
       }
